@@ -6,7 +6,8 @@
 #   networkRulesStr      — (allow network*) or restricted-proxy rules
 #   allowReadWriteExecStr — per-stateDir allow rules  (subpath, file-read/write/exec)
 #   allowFilesStr        — per-stateFile allow rules  (literal, file-read/write)
-{ networkRulesStr, allowReadWriteExecStr, allowFilesStr }: ''
+#   allowReadOnlyStr    — per-readOnlyDir allow rules (subpath, file-read only)
+{ networkRulesStr, allowReadWriteExecStr, allowFilesStr, allowReadOnlyStr }: ''
   (version 1)
   (deny default)
 
@@ -143,4 +144,7 @@
   ;; Explicit state directories & files
   ${allowReadWriteExecStr}
   ${allowFilesStr}
+
+  ;; Explicit read-only directories
+  ${allowReadOnlyStr}
 ''
