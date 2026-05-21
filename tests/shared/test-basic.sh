@@ -55,5 +55,10 @@ expect_ok "home is empty tmpfs" "ls \$HOME"
 expect_ok "home tmpfs is writable (ephemeral)" "touch \$HOME/.test-write && rm \$HOME/.test-write"
 expect_fail "host dotfiles are not visible" "ls \$HOME/.bashrc"
 
+# --- /usr/bin/env shebang support ---
+printf '#!/usr/bin/env sh\necho hello\n' > "$TESTDIR/env-shebang.sh"
+chmod +x "$TESTDIR/env-shebang.sh"
+expect_ok "/usr/bin/env resolves shebang interpreter" "./env-shebang.sh"
+
 print_results
 exit_status
