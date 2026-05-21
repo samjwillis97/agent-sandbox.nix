@@ -67,6 +67,7 @@ let
     binName = "claude";
     outName = "claude-sandboxed";
     stateDirs = [ "$HOME/.claude" "$HOME/.cache/uv" "$HOME/.local/share/uv" ];
+    stateFiles = [ ];
     allowedPackages = commonPackages;
     extraEnv = commonEnv // pkgs.lib.optionalAttrs isLinux linuxEnv;
     restrictNetwork = true;

@@ -29,6 +29,7 @@ let
       pkgs.jq
     ];
     stateDirs = [ "$HOME/.claude" ];
+    stateFiles = [ ];
     extraEnv = {
       # Pass secrets as shell variable references (e.g. "$TOKEN"), not
       # via builtins.getEnv, so they expand at runtime and stay out of

@@ -236,6 +236,7 @@ bash-sandboxed = sandbox.mkSandbox {
   outName = "bash-sandboxed";
   allowedPackages = [ pkgs.coreutils ];
   stateDirs = [ "$HOME/.claude" ];
+  stateFiles = [];
   restrictNetwork = true;
   allowedDomains = { "httpbin.org" = "*"; };
 };
