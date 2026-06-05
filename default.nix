@@ -23,8 +23,8 @@ let
   #   List (backward compat): [ "github.com" "anthropic.com" ]
   #     → every domain gets "*" (all methods allowed)
   #   Attrset (per-domain method control):
-  #     { "*" = [ "GET" "HEAD" ]; "api.anthropic.com" = "*"; }
-  # Output JSON: { "domain": "*" | ["GET","HEAD"], ... }
+  #     { "*" = [ "GET" "HEAD" ]; "api.anthropic.com" = "*"; "api.github.com" = "tunnel"; }
+  # Output JSON: { "domain": "*" | "tunnel" | ["GET","HEAD"], ... }
   mkAllowlistFile =
     allowedDomains:
     let

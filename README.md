@@ -65,7 +65,7 @@ If you want to keep the original command name as the alias, change the `outName`
 | `stateFiles` | no | Individual files the agent can read/write |
 | `extraEnv` | no | Additional environment variables as an attrset |
 | `restrictNetwork` | no | When `true`, network is limited to `allowedDomains` (default `false`) |
-| `allowedDomains` | no | Domains the sandbox can reach when `restrictNetwork = true`. Attrset mapping domains to `"*"` or a list of HTTP methods, or a list of domain strings (all methods allowed). |
+| `allowedDomains` | no | Domains the sandbox can reach when `restrictNetwork = true`. Attrset mapping domains to `"*"`, `"tunnel"`, or a list of HTTP methods, or a list of domain strings (all methods allowed). |
 
 A minimal example — the arguments are the same whether you use a flake or a `shell.nix`:
 
@@ -96,12 +96,27 @@ By default, network access is unrestricted. But you can optionally restrict conn
 
 `allowedDomains` accepts two formats:
 
-- **Attrset (recommended):** map each domain to `"*"` (all HTTP methods allowed) or a list of permitted methods (e.g. `[ "GET" "HEAD" ]`).
+- **Attrset (recommended):** map each domain to `"*"` (all HTTP methods allowed), `"tunnel"` (see below), or a list of permitted methods (e.g. `[ "GET" "HEAD" ]`).
 - **List:** `[ "anthropic.com" "sentry.io" ]` — equivalent to allowing all methods for each domain.
 
 Domains are suffix-matched, so `"anthropic.com"` will capture all `*.anthropic.com` subdomains.
 
 When `restrictNetwork = true`, all HTTP/HTTPS traffic is routed through a filtering proxy that inspects requests by domain and HTTP method. The sandbox cannot bypass the proxy and DNS resolution is blocked. WebSocket connections are not permitted.
+
+#### Tunnel (TLS passthrough)
+
+Setting a domain to `"tunnel"` (alias: `"passthrough"`) relays raw TCP for that domain instead of intercepting its TLS. The client negotiates TLS directly with the real upstream and sees its genuine certificate, rather than the leaf cert minted by the proxy's ephemeral CA.
+
+This is needed for tools that ignore the proxy CA bundle. The proxy injects its CA via `NODE_EXTRA_CA_CERTS`/`SSL_CERT_FILE`, which Node and git honour — but Go binaries on macOS (such as `gh`) verify TLS against the system Keychain and ignore those variables, so they fail with `x509: certificate is not trusted` against the MITM cert. Tunnelling lets them trust the real upstream certificate via the system store.
+
+Trade-off: tunnelled domains are only allow/deny-filtered at the CONNECT host level. Because the proxy never decrypts the connection, there is **no per-method or per-path filtering** for a tunnelled domain — granting `"tunnel"` is equivalent to `"*"` for that host, plus opting out of inspection.
+
+```nix
+allowedDomains = {
+  "api.github.com" = "tunnel";   # gh on macOS trusts GitHub's real cert
+  "github.com" = ["GET" "HEAD"]; # still method-filtered (MITM)
+};
+```
 
 Blocked requests are logged to `/tmp/sandbox-proxy.log`. See [Git](#git) for limitations on SSH-based remotes.
 
@@ -175,6 +190,8 @@ The sandbox allows access to the local git directory, including from within work
 Interacting with remotes requires authentication. The recommended approach is to use HTTPS rather than SSH based remotes. The simplest way to authenticate is by passing a token via `extraEnv` (e.g. `GITHUB_TOKEN`), but you can also configure a [git credential helper](https://git-scm.com/doc/credential-helpers) to store your token for reuse so you don't have to pass it via environment variable.
 
 SSH based remotes (e.g. `git@github.com:...`) won't work by default — SSH keys are not accessible because `$HOME` is masked, and when `restrictNetwork = true` the proxy only handles HTTP/HTTPS so SSH traffic is blocked entirely. You can expose your SSH directory via `stateDirs` (e.g. `$HOME/.ssh`) and set `restrictNetwork = false` to enable SSH based git remotes, but this is not recommended.
+
+**Using `gh` on macOS under `restrictNetwork = true`:** `gh` is a Go binary whose TLS verifier uses the system Keychain and ignores the proxy CA bundle, so it cannot trust the proxy's MITM certificate and fails with `x509: certificate is not trusted` (even with a valid `GITHUB_TOKEN`). Set the relevant domains to `"tunnel"` in `allowedDomains` (e.g. `"api.github.com" = "tunnel";`) so the proxy relays raw TCP and `gh` trusts GitHub's real certificate. See [Tunnel (TLS passthrough)](#tunnel-tls-passthrough).
 
 ### Git identity
 
