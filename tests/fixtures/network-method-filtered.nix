@@ -14,6 +14,8 @@ in sandbox.mkSandbox {
   allowedDomains = {
     "httpbin.test" = [ "GET" "HEAD" ];
     "pie.test" = "*";
+    # Used by test-network.sh to contrast tunnelled TLS with ordinary MITM TLS.
+    "httpbin.org" = "*";
   };
   _proxyRedirects = {
     "httpbin.test" = "127.0.0.1:${httpbinPort}";

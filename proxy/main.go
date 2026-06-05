@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"io"
 	"math/big"
 	"net"
 	"net/http"
@@ -25,6 +26,13 @@ import (
 type DomainPolicy struct {
 	AllowAll bool
 	Methods  map[string]bool
+	// Tunnel relays raw TCP for the domain without intercepting TLS. This is
+	// needed for tools that ignore the proxy CA bundle (e.g. Go binaries on
+	// macOS such as gh, whose TLS verifier uses the system Keychain and
+	// ignores SSL_CERT_FILE/NODE_EXTRA_CA_CERTS). When tunnelling, only
+	// CONNECT-host allowlisting applies — there is no per-method or per-path
+	// filtering because the proxy never sees the decrypted request.
+	Tunnel bool
 }
 
 // Config maps domain names to their policies. The "*" key is the default policy.
@@ -102,10 +110,13 @@ func loadConfig(path string) (Config, error) {
 		// Try string first ("*"), then array of methods
 		var star string
 		if err := json.Unmarshal(val, &star); err == nil {
-			if star == "*" {
+			switch strings.ToLower(star) {
+			case "*":
 				cfg[domain] = DomainPolicy{AllowAll: true}
-			} else {
-				return nil, fmt.Errorf("invalid policy for %q: string must be \"*\", got %q", domain, star)
+			case "tunnel", "passthrough":
+				cfg[domain] = DomainPolicy{AllowAll: true, Tunnel: true}
+			default:
+				return nil, fmt.Errorf("invalid policy for %q: string must be \"*\" or \"tunnel\", got %q", domain, star)
 			}
 			continue
 		}
@@ -156,6 +167,11 @@ func lookupPolicy(host string, cfg Config) (DomainPolicy, bool) {
 func isDomainAllowed(host string, cfg Config) bool {
 	_, ok := lookupPolicy(host, cfg)
 	return ok
+}
+
+func isTunnel(host string, cfg Config) bool {
+	policy, ok := lookupPolicy(host, cfg)
+	return ok && policy.Tunnel
 }
 
 func isMethodAllowed(host, method string, cfg Config) bool {
@@ -402,6 +418,11 @@ func handle(conn net.Conn, cfg Config, ca *certAuthority, redirects Redirects) {
 			fmt.Fprintf(conn, "HTTP/1.1 403 Forbidden\r\n\r\n")
 			return
 		}
+		if isTunnel(host, cfg) {
+			fmt.Fprintf(conn, "HTTP/1.1 200 Connection Established\r\n\r\n")
+			handleTunnel(conn, req.Host)
+			return
+		}
 		// MITM: intercept the TLS connection to inspect HTTP requests
 		fmt.Fprintf(conn, "HTTP/1.1 200 Connection Established\r\n\r\n")
 		handleMITM(conn, host, req.Host, cfg, ca, redirects)
@@ -448,6 +469,31 @@ func handle(conn net.Conn, cfg Config, ca *certAuthority, redirects Redirects) {
 		defer resp.Body.Close()
 		resp.Write(conn)
 	}
+}
+
+// handleTunnel relays raw TCP between the client and the upstream without
+// intercepting TLS, so the client negotiates TLS directly with the real
+// upstream and trusts its genuine certificate via the system store.
+func handleTunnel(clientConn net.Conn, hostPort string) {
+	upstream, err := net.Dial("tcp", hostPort)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s tunnel dial error for %s: %v\n", time.Now().Format(time.RFC3339), hostPort, err)
+		return
+	}
+	defer upstream.Close()
+
+	done := make(chan struct{}, 2)
+	copyAndClose := func(dst, src net.Conn) {
+		io.Copy(dst, src)
+		if tcp, ok := dst.(*net.TCPConn); ok {
+			tcp.CloseWrite()
+		}
+		done <- struct{}{}
+	}
+	go copyAndClose(upstream, clientConn)
+	go copyAndClose(clientConn, upstream)
+	<-done
+	<-done
 }
 
 func handleMITM(clientConn net.Conn, host, hostPort string, cfg Config, ca *certAuthority, redirects Redirects) {

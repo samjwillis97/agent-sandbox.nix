@@ -112,19 +112,62 @@ expect_ok "subdomain of allowed domain works (www.httpbin.test)" \
 expect_fail "shared-suffix non-subdomain blocked (nothttpbin.test)" \
 	'curl -sf --max-time 10 -o /dev/null https://nothttpbin.test'
 
+# --- Tunnel (TLS passthrough) tests ---
+
+SANDBOXED_TUNNEL=$(nix-build --no-out-link "$SCRIPT_DIR/../fixtures/network-tunnel.nix")
+TUNNEL_SHELL="$SANDBOXED_TUNNEL/bin/sandboxed-bash-tunnel"
+run() { "$TUNNEL_SHELL" --norc --noprofile -c "$@" >/dev/null 2>&1; }
+
+# Test 18: tunnelled domain reachable over HTTPS (client trusts real upstream cert)
+expect_ok "tunnelled domain reachable (httpbin.org)" \
+	'curl -sf --max-time 10 -o /dev/null https://httpbin.org/get'
+
+# Test 19: tunnelled domain has no per-method filtering (POST succeeds)
+expect_ok "tunnelled domain allows POST (no method filtering)" \
+	'curl -sf --max-time 10 -X POST -d "test=1" -o /dev/null https://httpbin.org/post'
+
+# Test 20: passthrough proof — tunnelled domain presents the REAL upstream cert,
+# not the sandbox-proxy MITM cert. curl's verbose TLS output is captured from
+# inside the sandbox (which has no grep) and filtered on the host.
+TUNNEL_ISSUER=$("$TUNNEL_SHELL" --norc --noprofile -c \
+	'curl -sv --max-time 10 -o /dev/null https://httpbin.org/get 2>&1' 2>/dev/null | grep -i "issuer:" || true)
+if [ -z "$TUNNEL_ISSUER" ]; then
+	echo "FAIL: tunnelled domain produced no cert issuer line (inconclusive)"
+	FAIL=$((FAIL + 1))
+elif echo "$TUNNEL_ISSUER" | grep -qi "sandbox-proxy"; then
+	echo "FAIL: tunnelled domain presented sandbox-proxy MITM cert (expected real upstream cert)"
+	FAIL=$((FAIL + 1))
+else
+	echo "PASS: tunnelled domain presents real upstream cert (not sandbox-proxy CA)"
+	PASS=$((PASS + 1))
+fi
+
+# Test 21: contrast — the SAME host (httpbin.org) is MITM'd in the method-filtered
+# sandbox, so its issuer IS the sandbox-proxy CA. This proves the tunnel branch
+# is what changes the presented certificate. Reuses $METHOD_SHELL.
+MITM_ISSUER=$("$METHOD_SHELL" --norc --noprofile -c \
+	'curl -sv --max-time 10 -o /dev/null https://httpbin.org/get 2>&1' 2>/dev/null | grep -i "issuer:" || true)
+if echo "$MITM_ISSUER" | grep -qi "sandbox-proxy"; then
+	echo "PASS: same host MITM'd in non-tunnel sandbox (issuer is sandbox-proxy CA)"
+	PASS=$((PASS + 1))
+else
+	echo "FAIL: non-tunnelled httpbin.org should be MITM'd (expected sandbox-proxy CA issuer)"
+	FAIL=$((FAIL + 1))
+fi
+
 # --- Direct-to-IP bypass tests (prove kernel-level enforcement) ---
 
 run() { "$NET_SHELL" --norc --noprofile -c "$@" >/dev/null 2>&1; }
 
-# Test 15: direct IP bypassing proxy is blocked
+# Test 22: direct IP bypassing proxy is blocked
 expect_fail "direct IP bypass blocked (curl --noproxy)" \
 	'curl -sf --noproxy "*" --max-time 5 http://1.1.1.1'
 
-# Test 16: raw TCP connection bypassing proxy is blocked
+# Test 23: raw TCP connection bypassing proxy is blocked
 expect_fail "raw TCP bypass blocked (bash /dev/tcp)" \
 	'exec 3<>/dev/tcp/1.1.1.1/80'
 
-# Test 17: --connect-to direct IP for allowed domain blocked
+# Test 24: --connect-to direct IP for allowed domain blocked
 expect_fail "direct IP for allowed domain blocked (--connect-to)" \
 	'curl -sf --max-time 5 --connect-to ::1.1.1.1: http://httpbin.test/get'
 
