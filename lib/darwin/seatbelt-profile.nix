@@ -20,7 +20,6 @@
   (allow process-exec (literal "/bin/sh"))
   (allow process-exec (literal "/bin/bash"))
   (allow process-exec (literal "/usr/bin/env"))
-  (allow process-exec (literal "/usr/bin/plutil"))
 
   ;; Mach IPC — scoped to system services, security framework, FSEvents
   (allow mach-lookup (global-name-prefix "com.apple.system."))
@@ -73,14 +72,15 @@
     (literal "/dev/stdin")
     (literal "/dev/dtracehelper"))
 
-  ;; System libraries & frameworks
+  ;; System libraries & frameworks. /Library/Preferences is intentionally NOT
+  ;; allowed: it holds host-identifying plists (hostname, MAC addresses,
+  ;; paired Bluetooth devices, recent users, WiFi private-MAC rotation keys).
   (allow file-read*
     (subpath "/usr/lib")
     (subpath "/usr/bin")
     (subpath "/usr/share")
     (subpath "/bin")
-    (subpath "/System")
-    (subpath "/Library/Preferences"))
+    (subpath "/System"))
 
   ;; DNS, TLS & name resolution
   (allow file-read*

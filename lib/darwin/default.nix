@@ -50,8 +50,10 @@
 
      System libraries:
        /usr/lib, /usr/share, /System — Apple frameworks and dylibs.
-       /Library/Preferences — system-wide plist defaults.
        These are read-only. Without them, almost nothing runs on macOS.
+       /Library/Preferences is intentionally NOT allowed: its plists leak
+       host identity (hostname, MAC addresses, paired Bluetooth devices,
+       recent users, WiFi rotation key material).
 
      Nix store:
        Only the closure of allowedPackages and pkg is readable/executable.
