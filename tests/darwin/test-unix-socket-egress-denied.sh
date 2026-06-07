@@ -18,6 +18,11 @@ source "$SCRIPT_DIR/../lib.sh"
 SANDBOXED=$(nix-build --no-out-link "$SCRIPT_DIR/../fixtures/unix-socket-client-sandbox.nix")
 SHELL="$SANDBOXED/bin/sandboxed-bash"
 
+# Host-side python3 from nixpkgs, for the UNIX-socket listener below.
+# /usr/bin/python3 on macOS is a Command Line Tools stub that isn't safe
+# to depend on in CI; nix-provided python3 is reproducible.
+HOST_PYTHON3=$(nix-build --no-out-link -E '(import <nixpkgs> {}).python3Minimal')/bin/python3
+
 run() { "$SHELL" --norc --noprofile -c "$@" >/dev/null 2>&1; }
 
 TESTDIR_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)/.tmp-test"
@@ -43,7 +48,7 @@ trap cleanup EXIT
 
 # Host-side UNIX-socket listener that actually accept()s — so a successful
 # connect() would observably complete, not just queue in the kernel backlog.
-/usr/bin/python3 -c '
+"$HOST_PYTHON3" -c '
 import socket, sys, signal, threading
 s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
 s.bind(sys.argv[1])
@@ -61,13 +66,15 @@ signal.pause()
 ' "$SOCK_PATH" >"$TESTDIR/listener.log" 2>&1 &
 LISTENER_PID=$!
 
-for _ in 1 2 3 4 5 6 7 8 9 10; do
+for _ in $(seq 1 50); do
 	[ -S "$SOCK_PATH" ] && break
 	sleep 0.1
 done
 if [ ! -S "$SOCK_PATH" ]; then
 	echo "ERROR: host listener never bound $SOCK_PATH" >&2
-	cat "$TESTDIR/listener.log" >&2
+	echo "--- listener.log ---" >&2
+	cat "$TESTDIR/listener.log" >&2 || true
+	echo "--- end listener.log ---" >&2
 	exit 1
 fi
 
