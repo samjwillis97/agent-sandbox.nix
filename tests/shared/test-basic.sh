@@ -60,5 +60,18 @@ printf '#!/usr/bin/env sh\necho hello\n' > "$TESTDIR/env-shebang.sh"
 chmod +x "$TESTDIR/env-shebang.sh"
 expect_ok "/usr/bin/env resolves shebang interpreter" "./env-shebang.sh"
 
+# --- /etc/passwd does not expose host username ---
+# Linux: synthetic single-entry file is served; Darwin: /private/etc/passwd is denied entirely.
+# In both cases the host username must not appear in the username field (field 1).
+host_username=$(id -un)
+sandbox_passwd_username=$("$SHELL" --norc --noprofile -c 'cut -d: -f1 /etc/passwd 2>/dev/null' 2>/dev/null || echo "")
+if [ "$sandbox_passwd_username" != "$host_username" ]; then
+	echo "PASS: host username not exposed via /etc/passwd"
+	PASS=$((PASS + 1))
+else
+	echo "FAIL: host username '$host_username' visible in /etc/passwd username field"
+	FAIL=$((FAIL + 1))
+fi
+
 print_results
 exit_status

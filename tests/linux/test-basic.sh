@@ -44,5 +44,25 @@ else
 	FAIL=$((FAIL + 1))
 fi
 
+# --- /etc/passwd is a synthetic single-entry file (no host username leak) ---
+passwd_line_count=$("$SHELL" --norc --noprofile -c 'wc -l < /etc/passwd' 2>/dev/null || echo "error")
+if [ "$passwd_line_count" = "1" ]; then
+	echo "PASS: /etc/passwd has exactly 1 line"
+	PASS=$((PASS + 1))
+else
+	echo "FAIL: /etc/passwd has $passwd_line_count lines, expected 1"
+	FAIL=$((FAIL + 1))
+fi
+
+sandbox_passwd_uid=$("$SHELL" --norc --noprofile -c 'cut -d: -f3 /etc/passwd' 2>/dev/null || echo "error")
+if [ "$sandbox_passwd_uid" = "$(id -u)" ]; then
+	echo "PASS: /etc/passwd UID matches host UID"
+	PASS=$((PASS + 1))
+else
+	echo "FAIL: /etc/passwd UID is '$sandbox_passwd_uid', expected '$(id -u)'"
+	FAIL=$((FAIL + 1))
+fi
+
+
 print_results
 exit_status

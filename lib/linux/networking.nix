@@ -45,8 +45,7 @@ in if restrictNetwork then
       fi
     '' + mkProxyStartupBashStr allowlistFileStr "$_HOST_IP" _proxyRedirects;
 
-    bashTrapCleanupStr = ''
-      trap 'kill $_PROXY_PID 2>/dev/null; rm -f "$_CA_CERT_FILE" "$_COMBINED_CA_BUNDLE"' EXIT'';
+    bashCleanupCommandsStr = ''kill $_PROXY_PID 2>/dev/null; rm -f "$_CA_CERT_FILE" "$_COMBINED_CA_BUNDLE"'';
 
     sandboxExecBashStr = ''
       SANDBOX_HOST_IP="$_HOST_IP" SANDBOX_PROXY_PORT="$_PROXY_PORT" ${pkgs.passt}/bin/pasta -4 --config-net -a ${pastaNamespaceIp} -g ${pastaGatewayIp} -n 255.255.255.0 -t none -u none -T none -U none -- ${routeRestrictScript} '';
@@ -63,7 +62,7 @@ else {
   proxyEnvBubblewrapStr = "";
   caCertBubblewrapStr = "";
   proxyStartupBashStr = "";
-  bashTrapCleanupStr = "";
+  bashCleanupCommandsStr = "";
   sandboxExecBashStr = "exec ";
 
   etcResolvBind =

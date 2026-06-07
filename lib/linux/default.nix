@@ -132,6 +132,22 @@ let
     _proxyRedirects = _proxyRedirects;
   };
 
+  sandboxPasswdBashStr =
+    # bash
+    ''
+      _SANDBOX_PASSWD=$(mktemp /tmp/sandbox-passwd.XXXXXX)
+      printf 'user:x:%s:%s:sandbox user:%s:/bin/sh\n' "$(id -u)" "$(id -g)" "$HOME" > "$_SANDBOX_PASSWD"
+    '';
+
+  trapBashStr =
+    let
+      networkCmds = conditionalNetworkingParams.bashCleanupCommandsStr;
+      cmds = if networkCmds == ""
+        then ''rm -f "$_SANDBOX_PASSWD"''
+        else ''rm -f "$_SANDBOX_PASSWD"; ${networkCmds}'';
+    in ''
+      trap '${cmds}' EXIT'';
+
   # cacert and bashWrapper are always included: cacert so SSL/TLS
   # verification works, bashWrapper so the hardcoded SHELL and
   # /bin/sh symlink targets are always reachable in the store closure.
@@ -180,13 +196,14 @@ in pkgs.writeTextFile {
         done < ${closurePathsFile}
 
       ${symlinkResolutionBashStr}
+      ${sandboxPasswdBashStr}
       ${conditionalNetworkingParams.proxyStartupBashStr}
-      ${conditionalNetworkingParams.bashTrapCleanupStr}
+      ${trapBashStr}
       ${conditionalNetworkingParams.sandboxExecBashStr}${pkgs.coreutils}/bin/env -i ${pkgs.bubblewrap}/bin/bwrap \
         ${conditionalNetworkingParams.etcResolvBind} \
         --tmpfs /nix/store \
         $CLOSURE_BINDS \
-        --ro-bind /etc/passwd /etc/passwd \
+        --ro-bind "$_SANDBOX_PASSWD" /etc/passwd \
         --ro-bind ${hostsFile} /etc/hosts \
         --ro-bind-try /etc/ssl/certs /etc/ssl/certs \
         --ro-bind-try /etc/static /etc/static \
