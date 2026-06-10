@@ -6,10 +6,11 @@
 #   nix-shell shells/claude.shell.nix
 let
   pkgs = import <nixpkgs> { config.allowUnfree = true; };
-  sandbox = import (fetchTarball
-    "https://github.com/archie-judd/agent-sandbox.nix/archive/main.tar.gz") {
-      pkgs = pkgs;
-    };
+  sandbox =
+    import (fetchTarball "https://github.com/archie-judd/agent-sandbox.nix/archive/main.tar.gz")
+      {
+        pkgs = pkgs;
+      };
   claude-sandboxed = sandbox.mkSandbox {
     pkg = pkgs.claude-code;
     binName = "claude";
@@ -46,8 +47,15 @@ let
     allowedDomains = {
       "anthropic.com" = "*";
       "claude.com" = "*";
-      "raw.githubusercontent.com" = [ "GET" "HEAD" ];
-      "api.github.com" = [ "GET" "HEAD" ];
+      "raw.githubusercontent.com" = [
+        "GET"
+        "HEAD"
+      ];
+      "api.github.com" = [
+        "GET"
+        "HEAD"
+      ];
     };
   };
-in pkgs.mkShell { packages = [ claude-sandboxed ]; }
+in
+pkgs.mkShell { packages = [ claude-sandboxed ]; }

@@ -4,7 +4,7 @@
 # The three shell functions must be emitted in order after BOUND_PREFIXES is
 # populated: isAlreadyBoundBashStr, then addSymlinkTargetBashStr (which also
 # initialises the runtime variables), then followSymlinkChainBashStr.
-{ pkgs }: {
+{ pkgs, shared }: {
   # Checks whether a path is already covered by one of the bound prefixes.
   isAlreadyBoundBashStr =
     # bash
@@ -43,7 +43,7 @@
         # expands the sandbox on the next startup (e.g. ~/.claude/evil -> /etc/shadow).
         # Nix store paths are exempt: they are immutable and agent-unwritable.
         if [[ "$_target" != /nix/store/* ]]; then
-          echo "sandbox: WARNING: ignoring symlink to '$_target' — target is outside permitted paths; declare it as a stateDir or stateFile to allow access" >&2
+          echo "${shared.warnPrefix} ignoring symlink to '$_target' — target is outside permitted paths; declare it as a stateDir or stateFile to allow access" >&2
           return
         fi
         readonlyStateFileSymlinks="$readonlyStateFileSymlinks --ro-bind $_target $_target"

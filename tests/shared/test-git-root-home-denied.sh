@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# Test: when the git root resolves to $HOME (or an ancestor), the sandbox
+# refuses to expose it and disables git for the session, instead of binding
+# the whole home directory. Regression for SANDBOX-FINDINGS.md F2.
+#
+# The threat: a user who has `git init`'d their home directory launches the
+# agent from a subdir of home. `git rev-parse --git-common-dir` then resolves
+# to ~/.git, so REPO_ROOT=$HOME would be exposed (read-only via REPO_ROOT,
+# read-write via GIT_DIR) — leaking SSH keys, other projects, and the dotfiles
+# repo's tracked-file history. The fix detects REPO_ROOT ⊇ $HOME and disables
+# git, leaving CWD (the project subdir) fully usable.
+#
+# We drive this by pointing HOME at a throwaway git repo and launching from a
+# subdir of it, so the guard fires without touching the real home directory.
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+source "$SCRIPT_DIR/../lib.sh"
+
+SANDBOXED=$(nix-build --no-out-link "$SCRIPT_DIR/../fixtures/expose-repo-root.nix")
+SHELL="$SANDBOXED/bin/sandboxed-bash"
+
+# The fake HOME must NOT be under /tmp, which the sandbox always exposes
+# read-write — that would mask the assertion. Use the gitignored .tmp-test
+# dir inside this repo, matching test-expose-repo-root.sh.
+TESTDIR_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)/.tmp-test"
+mkdir -p "$TESTDIR_ROOT"
+FAKE_HOME=$(mktemp -d "$TESTDIR_ROOT/git-root-home.XXXXXX")
+trap 'rm -rf "$FAKE_HOME"' EXIT
+
+# Make $FAKE_HOME itself a git repo, with a secret sibling to the project subdir.
+git -C "$FAKE_HOME" init -q
+git -C "$FAKE_HOME" config user.email "test@test.com"
+git -C "$FAKE_HOME" config user.name "Test"
+echo "home-secret-content" >"$FAKE_HOME/home-secret.txt"
+mkdir -p "$FAKE_HOME/subdir"
+echo "project-file" >"$FAKE_HOME/subdir/project.txt"
+
+# Launch from the project subdir, with HOME pointed at the repo root so the
+# detected git root (dirname of .git) equals $HOME and the guard fires.
+cd "$FAKE_HOME/subdir"
+
+run() { HOME="$FAKE_HOME" "$SHELL" --norc --noprofile -c "$@" >/dev/null 2>&1; }
+
+echo "=== git-root-home-denied tests (shared) ==="
+echo
+
+# Sanity: git resolves inside the sandbox (otherwise the assertions below are
+# meaningless — a missing binary also exits non-zero).
+expect_ok "git binary is available inside the sandbox" "command -v git"
+
+# 1. The wrapper warns that git was disabled. The warning is emitted by the
+#    outer wrapper (before sandbox entry) on stderr, so any command triggers it.
+WARN_OUT=$(HOME="$FAKE_HOME" "$SHELL" --norc --noprofile -c 'true' 2>&1 >/dev/null || true)
+if echo "$WARN_OUT" | grep -q "git is disabled for this session"; then
+	echo "PASS: warns that git is disabled when root resolves to \$HOME"
+	PASS=$((PASS + 1))
+else
+	echo "FAIL: expected home-git-root warning on stderr, got: $WARN_OUT"
+	FAIL=$((FAIL + 1))
+fi
+
+# 2. The security property: the home directory is NOT exposed. The secret sits
+#    in the (would-be) REPO_ROOT, one level above CWD. Without the fix this
+#    succeeds via the REPO_ROOT read grant; with the fix home is never bound.
+expect_fail "cannot read sibling file in home-repo root" "cat ../home-secret.txt"
+
+# 3. Git is disabled (not crashed): inside the sandbox there is no repo to find.
+expect_fail "git does not see the home repo from inside the sandbox" "git rev-parse --git-dir"
+
+# 4. The project subdir (CWD) remains fully usable.
+expect_ok "CWD remains readable" "cat ./project.txt"
+expect_ok "CWD remains writable" "touch ./test-write && rm ./test-write"
+
+print_results
+exit_status

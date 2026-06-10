@@ -1,101 +1,115 @@
-/* mkLinuxSandbox — wraps a binary in a bubblewrap (bwrap) container.
+/*
+  mkLinuxSandbox — wraps a binary in a bubblewrap (bwrap) container.
 
-     Bubblewrap creates a lightweight Linux namespace sandbox. It builds an
-     entirely new mount tree from scratch — nothing is visible unless
-     explicitly mounted in. The sandbox also unshares all namespaces (PID,
-     user, IPC, UTS, cgroup) except network.
+    Bubblewrap creates a lightweight Linux namespace sandbox. It builds an
+    entirely new mount tree from scratch — nothing is visible unless
+    explicitly mounted in. The sandbox also unshares all namespaces (PID,
+    user, IPC, UTS, cgroup) except network.
 
-     ## Filesystem layout inside the sandbox
+    ## Filesystem layout inside the sandbox
 
-       Read-only bind mounts:
-         /nix/store/<hash>-... — only the closure of allowedPackages
-                   and pkg, not the entire nix store
-         /etc/passwd   — user identity for programs that need it
-         /etc/hosts    — loopback name resolution (localhost → 127.0.0.1)
-         /etc/resolv.conf — DNS resolution
-         /etc/ssl/certs   — TLS certificate verification
-       Kernel filesystems:
-         /proc   — mounted as a new procfs (only shows sandbox PIDs)
-         /dev    — minimal devtmpfs (null, zero, urandom, etc.)
-       Ephemeral tmpfs (empty, writable, lost on exit):
-         /tmp    — scratch space
-         $HOME   — prevents accidental reads of dotfiles; agent state
-                    dirs are bind-mounted back on top of this
-       Read-only bind mounts:
-         $REPO_ROOT  — the git repo root, so git commands and reads of
-                       files outside CWD work. CWD and GIT_DIR are
-                       mounted rw on top of this.
-       Read-write bind mounts:
-         $CWD        — the project directory (always)
-         stateDirs   — each path gets a --bind (e.g., ~/.config/claude)
-         stateFiles  — each path gets a --bind (e.g., specific rc files)
-         $GIT_DIR    — the .git dir, auto-detected. Needed when CWD is a
-                       worktree and .git/common is outside CWD.
-       Symlinks:
-         /bin/sh -> bash — many scripts assume /bin/sh exists
+      Read-only bind mounts:
+        /nix/store/<hash>-... — only the closure of allowedPackages
+                  and pkg, not the entire nix store
+        /etc/passwd   — user identity for programs that need it
+        /etc/hosts    — loopback name resolution (localhost → 127.0.0.1)
+        /etc/resolv.conf — DNS resolution
+        /etc/ssl/certs   — TLS certificate verification
+      Kernel filesystems:
+        /proc   — mounted as a new procfs (only shows sandbox PIDs)
+        /dev    — minimal devtmpfs (null, zero, urandom, etc.)
+      Ephemeral tmpfs (empty, writable, lost on exit):
+        /tmp    — scratch space
+        $HOME   — prevents accidental reads of dotfiles; agent state
+                   dirs are bind-mounted back on top of this
+      Read-only bind mounts:
+        $REPO_ROOT  — the git repo root, so git commands and reads of
+                      files outside CWD work. CWD and GIT_DIR are
+                      mounted rw on top of this.
+      Read-write bind mounts:
+        $CWD        — the project directory (always)
+        stateDirs   — each path gets a --bind (e.g., ~/.config/claude)
+        stateFiles  — each path gets a --bind (e.g., specific rc files)
+        $GIT_DIR    — the .git dir, auto-detected. Needed when CWD is a
+                      worktree and .git/common is outside CWD.
+      Symlinks:
+        /bin/sh -> bash — many scripts assume /bin/sh exists
 
-     ## Key bwrap flags
+    ## Key bwrap flags
 
-       --unshare-all  Unshare every namespace type (mount, PID, user, IPC,
-                      UTS, cgroup). The process is fully isolated.
-       --share-net    Re-share the network namespace (undoes the network
-                      part of --unshare-all). Required for API calls.
-       --die-with-parent  Kill the sandbox if the parent shell exits, so
-                          orphaned sandboxes don't accumulate.
-       --setenv       Set environment variables inside the sandbox. PATH
-                      is explicitly constructed from allowedPackages, so
-                      only those binaries are callable.
+      --unshare-all  Unshare every namespace type (mount, PID, user, IPC,
+                     UTS, cgroup). The process is fully isolated.
+      --share-net    Re-share the network namespace (undoes the network
+                     part of --unshare-all). Required for API calls.
+      --die-with-parent  Kill the sandbox if the parent shell exits, so
+                         orphaned sandboxes don't accumulate.
+      --setenv       Set environment variables inside the sandbox. PATH
+                     is explicitly constructed from allowedPackages, so
+                     only those binaries are callable.
 
-     ## Debugging tips
+    ## Debugging tips
 
-       "No such file or directory":
-         The binary is trying to access a path that isn't mounted.
-         Run the wrapper with `strace -f -e trace=openat` to find the
-         path, then add it to stateDirs/stateFiles.
+      "No such file or directory":
+        The binary is trying to access a path that isn't mounted.
+        Run the wrapper with `strace -f -e trace=openat` to find the
+        path, then add it to stateDirs/stateFiles.
 
-       "Operation not permitted" on /proc or /dev:
-         Unprivileged user namespaces may be disabled on the host.
-         Check: sysctl kernel.unprivileged_userns_clone (needs to be 1).
+      "Operation not permitted" on /proc or /dev:
+        Unprivileged user namespaces may be disabled on the host.
+        Check: sysctl kernel.unprivileged_userns_clone (needs to be 1).
 
-       Git operations fail:
-         If CWD is a git worktree, the real .git/common dir lives
-         elsewhere. The wrapper auto-detects this with git rev-parse
-         --git-common-dir, but it fails silently if git isn't available
-         outside the sandbox. Check that $GIT_BIND is non-empty.
+      Git operations fail:
+        If CWD is a git worktree, the real .git/common dir lives
+        elsewhere. The wrapper auto-detects this with git rev-parse
+        --git-common-dir, but it fails silently if git isn't available
+        outside the sandbox. Check that $GIT_BIND is non-empty.
 
-       DNS/TLS failures:
-         Ensure /etc/resolv.conf and /etc/ssl/certs exist on the host.
-         NixOS symlinks these — if the target is outside /etc, you may
-         need to bind-mount the real paths.
+      DNS/TLS failures:
+        Ensure /etc/resolv.conf and /etc/ssl/certs exist on the host.
+        NixOS symlinks these — if the target is outside /etc, you may
+        need to bind-mount the real paths.
 */
 { pkgs, shared }:
-{ pkg, binName, outName, allowedPackages, stateDirs ? [ ], stateFiles ? [ ]
-, extraEnv ? { }, restrictNetwork ? false, allowedDomains ? [ ]
+{
+  pkg,
+  binName,
+  outName,
+  allowedPackages,
+  stateDirs ? [ ],
+  stateFiles ? [ ],
+  extraEnv ? { },
+  restrictNetwork ? false,
+  allowedDomains ? [ ],
   # Internal: maps "host" → "addr:port" so the proxy dials the local address
   # for those hosts instead of resolving the original. Used by the test
   # harness to point fake domains at a local httpbin. Not part of the
   # public API — leading underscore signals internal-only.
-, _proxyRedirects ? { } }:
+  _proxyRedirects ? { },
+}:
 let
   bashWrapper = shared.bashWrapper;
   emptyFile = pkgs.writeText "sandbox-empty" "";
-  implicitPackages = [ pkgs.cacert bashWrapper ];
+  implicitPackages = [
+    pkgs.cacert
+    bashWrapper
+  ];
   hostsFile = pkgs.writeText "sandbox-hosts" ''
     127.0.0.1 localhost
     ::1       localhost
   '';
   pathStr = pkgs.lib.makeBinPath (allowedPackages ++ implicitPackages);
-  mkDirsStr =
-    builtins.concatStringsSep "\n" (map (dir: ''mkdir -p "${dir}"'') stateDirs);
-  mkFilesStr =
-    builtins.concatStringsSep "\n" (map (file: ''touch "${file}"'') stateFiles);
-  bindDirsStr = builtins.concatStringsSep " "
-    (map (dir: ''--bind "${dir}" "${dir}"'') stateDirs);
+  mkDirsStr = builtins.concatStringsSep "\n" (map (dir: ''mkdir -p "${dir}"'') stateDirs);
+  mkFilesStr = builtins.concatStringsSep "\n" (map (file: ''touch "${file}"'') stateFiles);
+  bindDirsStr = builtins.concatStringsSep " " (map (dir: ''--bind "${dir}" "${dir}"'') stateDirs);
   # Adds each stateDir to the BOUND_PREFIXES shell array at runtime
-  stateDirsBoundPrefixBashStr = builtins.concatStringsSep "\n"
-    (map (dir: ''BOUND_PREFIXES+=("${dir}")'') stateDirs);
+  stateDirsBoundPrefixBashStr = builtins.concatStringsSep "\n" (
+    map (dir: ''BOUND_PREFIXES+=("${dir}")'') stateDirs
+  );
 
-  symlinkHelpers = import ./symlink-helpers.nix { pkgs = pkgs; };
+  symlinkHelpers = import ./symlink-helpers.nix {
+    pkgs = pkgs;
+    shared = shared;
+  };
 
   symlinkResolutionBashStr =
     # bash
@@ -113,17 +127,15 @@ let
 
       # Resolve stateFile symlinks — bind resolved targets, not the symlink paths
       STATE_FILE_BINDS=""
-      ${builtins.concatStringsSep "\n"
-      (map symlinkHelpers.mkResolveFileBashStr stateFiles)}
+      ${builtins.concatStringsSep "\n" (map symlinkHelpers.mkResolveFileBashStr stateFiles)}
 
       # Scan stateDirs for internal symlinks and bind their resolved targets
-      ${builtins.concatStringsSep "\n"
-      (map symlinkHelpers.mkScanDirBashStr stateDirs)}
+      ${builtins.concatStringsSep "\n" (map symlinkHelpers.mkScanDirBashStr stateDirs)}
     '';
 
-  extraEnvStr = builtins.concatStringsSep " "
-    (map (name: "--setenv ${name} ${builtins.toJSON extraEnv.${name}}")
-      (builtins.attrNames extraEnv));
+  extraEnvStr = builtins.concatStringsSep " " (
+    map (name: "--setenv ${name} ${builtins.toJSON extraEnv.${name}}") (builtins.attrNames extraEnv)
+  );
 
   conditionalNetworkingParams = import ./networking.nix {
     pkgs = pkgs;
@@ -143,11 +155,19 @@ let
   trapBashStr =
     let
       networkCmds = conditionalNetworkingParams.bashCleanupCommandsStr;
-      cmds = if networkCmds == ""
-        then ''rm -f "$_SANDBOX_PASSWD"''
-        else ''rm -f "$_SANDBOX_PASSWD"; ${networkCmds}'';
-    in ''
-      trap '${cmds}' EXIT'';
+      cmds =
+        if networkCmds == "" then
+          # bash
+          ''
+            rm -f "$_SANDBOX_PASSWD"
+          ''
+        else
+          # bash
+          ''
+            rm -f "$_SANDBOX_PASSWD"; ${networkCmds}
+          '';
+    in
+    "trap '${cmds}' EXIT";
 
   # cacert and bashWrapper are always included: cacert so SSL/TLS
   # verification works, bashWrapper so the hardcoded SHELL and
@@ -156,8 +176,14 @@ let
   # that the sandboxed process cannot source /etc/bashrc or /etc/profile.
   # coreutils is included for /usr/bin/env (shebang resolution) only — it is
   # not in implicitPackages so it does not leak into PATH.
-  closurePathsFile = pkgs.writeClosure
-    (allowedPackages ++ implicitPackages ++ [ pkg pkgs.coreutils ]);
+  closurePathsFile = pkgs.writeClosure (
+    allowedPackages
+    ++ implicitPackages
+    ++ [
+      pkg
+      pkgs.coreutils
+    ]
+  );
 
   gitDetectionBashStr =
     # bash
@@ -165,16 +191,30 @@ let
       GIT_BIND=""
       REPO_BIND=""
       if GIT_DIR=$(${pkgs.git}/bin/git rev-parse --path-format=absolute --git-common-dir 2>/dev/null); then
-        # hooks/ and config are ro to prevent git hook injection: an agent
-        # could otherwise drop an executable hook or set core.hooksPath to
-        # redirect execution to a writable directory on the next host git op.
-        GIT_BIND="--bind $GIT_DIR $GIT_DIR --ro-bind $GIT_DIR/hooks $GIT_DIR/hooks --ro-bind $GIT_DIR/config $GIT_DIR/config"
         REPO_ROOT=$(dirname "$GIT_DIR")
-        REPO_BIND="--ro-bind $REPO_ROOT $REPO_ROOT"
+        # Fail closed if the git root is $HOME (or an ancestor of it). Exposing it
+        # would leak the entire home directory: REPO_ROOT is bound read-only and
+        # GIT_DIR (=~/.git) read-write — and a home-rooted repo's object store holds
+        # the history of tracked dotfiles (~/.ssh/config, tokens, etc.). There is no
+        # safe partial exposure, so disable git for the session and warn instead.
+        if [[ "$HOME" == "$REPO_ROOT" || "$HOME" == "$REPO_ROOT"/* ]]; then
+          echo "${shared.warnPrefix} git root resolves to your home directory ($HOME) — refusing to expose it. git is disabled for this session." >&2
+          # Empty so GIT_BIND/REPO_BIND stay unset and the `[[ -n ... ]]`
+          # BOUND_PREFIXES guards below skip them too.
+          GIT_DIR=""
+          REPO_ROOT=""
+        else
+          # hooks/ and config are ro to prevent git hook injection: an agent
+          # could otherwise drop an executable hook or set core.hooksPath to
+          # redirect execution to a writable directory on the next host git op.
+          GIT_BIND="--bind $GIT_DIR $GIT_DIR --ro-bind $GIT_DIR/hooks $GIT_DIR/hooks --ro-bind $GIT_DIR/config $GIT_DIR/config"
+          REPO_BIND="--ro-bind $REPO_ROOT $REPO_ROOT"
+        fi
       fi
     '';
 
-in pkgs.writeTextFile {
+in
+pkgs.writeTextFile {
   name = outName;
   executable = true;
   destination = "/bin/${outName}";
