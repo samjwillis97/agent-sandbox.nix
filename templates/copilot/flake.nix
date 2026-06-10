@@ -1,8 +1,9 @@
 {
-  inputs.sandbox.url = "github:archie-judd/agent-sandbox.nix";
+  inputs.agent-sandbox.url = "github:archie-judd/agent-sandbox.nix";
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
-  outputs = { nixpkgs, sandbox, ... }:
+  outputs =
+    { nixpkgs, agent-sandbox, ... }:
     let
       forAllSystems = nixpkgs.lib.genAttrs [
         "x86_64-linux"
@@ -10,29 +11,22 @@
         "x86_64-darwin"
         "aarch64-darwin"
       ];
-    in {
-      devShells = forAllSystems (system:
+    in
+    {
+      devShells = forAllSystems (
+        system:
         let
           pkgs = import nixpkgs { system = system; };
-          copilot-sandboxed = sandbox.lib.${system}.mkSandbox {
+          sbx = agent-sandbox.lib.${system};
+          copilot-sandboxed = sbx.mkSandbox {
             pkg = pkgs.github-copilot-cli;
             binName = "copilot";
             outName = "copilot-sandboxed"; # or whatever alias you'd like
-            allowedPackages = [
-              pkgs.coreutils
-              pkgs.which
-              pkgs.git
-              pkgs.ripgrep
-              pkgs.fd
-              pkgs.gnused
-              pkgs.gnugrep
-              pkgs.findutils
-              pkgs.diffutils
-              pkgs.less
-              pkgs.gawk
-              pkgs.jq
-            ]; # bash is allowed by default - it is required by the sandbox
-            stateDirs = [ "$HOME/.config/github-copilot" "$HOME/.copilot" ];
+            allowedPackages = sbx.commonTools;
+            stateDirs = [
+              "$HOME/.config/github-copilot"
+              "$HOME/.copilot"
+            ];
             stateFiles = [ ];
             extraEnv = {
               # Pass secrets as shell variable references (e.g. "$TOKEN"), not
@@ -48,9 +42,16 @@
             allowedDomains = {
               "githubcopilot.com" = "*";
               "github.com" = "*";
-              "githubusercontent.com" = [ "GET" "HEAD" ];
+              "githubusercontent.com" = [
+                "GET"
+                "HEAD"
+              ];
             };
           };
-        in { default = pkgs.mkShell { packages = [ copilot-sandboxed ]; }; });
+        in
+        {
+          default = pkgs.mkShell { packages = [ copilot-sandboxed ]; };
+        }
+      );
     };
 }

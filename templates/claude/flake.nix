@@ -1,8 +1,9 @@
 {
-  inputs.sandbox.url = "github:archie-judd/agent-sandbox.nix";
+  inputs.agent-sandbox.url = "github:archie-judd/agent-sandbox.nix";
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
-  outputs = { nixpkgs, sandbox, ... }:
+  outputs =
+    { nixpkgs, agent-sandbox, ... }:
     let
       forAllSystems = nixpkgs.lib.genAttrs [
         "x86_64-linux"
@@ -10,28 +11,18 @@
         "x86_64-darwin"
         "aarch64-darwin"
       ];
-    in {
-      devShells = forAllSystems (system:
+    in
+    {
+      devShells = forAllSystems (
+        system:
         let
           pkgs = import nixpkgs { system = system; };
-          claude-sandboxed = sandbox.lib.${system}.mkSandbox {
+          sbx = agent-sandbox.lib.${system};
+          claude-sandboxed = sbx.mkSandbox {
             pkg = pkgs.claude-code;
             binName = "claude";
             outName = "claude-sandboxed"; # or whatever alias you'd like
-            allowedPackages = [
-              pkgs.coreutils
-              pkgs.which
-              pkgs.git
-              pkgs.ripgrep
-              pkgs.fd
-              pkgs.gnused
-              pkgs.gnugrep
-              pkgs.findutils
-              pkgs.diffutils
-              pkgs.less
-              pkgs.gawk
-              pkgs.jq
-            ]; # bash is allowed by default - it is required by the sandbox
+            allowedPackages = sbx.commonTools;
             stateDirs = [ "$HOME/.claude" ];
             stateFiles = [ ];
             extraEnv = {
@@ -50,10 +41,20 @@
             allowedDomains = {
               "anthropic.com" = "*";
               "claude.com" = "*";
-              "raw.githubusercontent.com" = [ "GET" "HEAD" ];
-              "api.github.com" = [ "GET" "HEAD" ];
+              "raw.githubusercontent.com" = [
+                "GET"
+                "HEAD"
+              ];
+              "api.github.com" = [
+                "GET"
+                "HEAD"
+              ];
             };
           };
-        in { default = pkgs.mkShell { packages = [ claude-sandboxed ]; }; });
+        in
+        {
+          default = pkgs.mkShell { packages = [ claude-sandboxed ]; };
+        }
+      );
     };
 }

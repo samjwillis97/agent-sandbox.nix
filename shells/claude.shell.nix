@@ -6,29 +6,16 @@
 #   nix-shell shells/claude.shell.nix
 let
   pkgs = import <nixpkgs> { config.allowUnfree = true; };
-  sandbox =
+  agent-sandbox =
     import (fetchTarball "https://github.com/archie-judd/agent-sandbox.nix/archive/main.tar.gz")
       {
         pkgs = pkgs;
       };
-  claude-sandboxed = sandbox.mkSandbox {
+  claude-sandboxed = agent-sandbox.mkSandbox {
     pkg = pkgs.claude-code;
     binName = "claude";
     outName = "claude-sandboxed";
-    allowedPackages = [
-      pkgs.coreutils
-      pkgs.which
-      pkgs.git
-      pkgs.ripgrep
-      pkgs.fd
-      pkgs.gnused
-      pkgs.gnugrep
-      pkgs.findutils
-      pkgs.diffutils
-      pkgs.less
-      pkgs.gawk
-      pkgs.jq
-    ];
+    allowedPackages = agent-sandbox.commonTools;
     stateDirs = [ "$HOME/.claude" ];
     stateFiles = [ ];
     extraEnv = {

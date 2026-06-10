@@ -6,29 +6,20 @@
 #   nix-shell shells/copilot.shell.nix
 let
   pkgs = import <nixpkgs> { config.allowUnfree = true; };
-  sandbox = import (fetchTarball
-    "https://github.com/archie-judd/agent-sandbox.nix/archive/main.tar.gz") {
-      pkgs = pkgs;
-    };
-  copilot-sandboxed = sandbox.mkSandbox {
+  agent-sandbox =
+    import (fetchTarball "https://github.com/archie-judd/agent-sandbox.nix/archive/main.tar.gz")
+      {
+        pkgs = pkgs;
+      };
+  copilot-sandboxed = agent-sandbox.mkSandbox {
     pkg = pkgs.github-copilot-cli;
     binName = "copilot";
     outName = "copilot-sandboxed";
-    allowedPackages = [
-      pkgs.coreutils
-      pkgs.which
-      pkgs.git
-      pkgs.ripgrep
-      pkgs.fd
-      pkgs.gnused
-      pkgs.gnugrep
-      pkgs.findutils
-      pkgs.diffutils
-      pkgs.less
-      pkgs.gawk
-      pkgs.jq
+    allowedPackages = agent-sandbox.commonTools;
+    stateDirs = [
+      "$HOME/.config/github-copilot"
+      "$HOME/.copilot"
     ];
-    stateDirs = [ "$HOME/.config/github-copilot" "$HOME/.copilot" ];
     stateFiles = [ ];
     extraEnv = {
       GITHUB_TOKEN = "$GITHUB_TOKEN";
@@ -41,9 +32,13 @@ let
     allowedDomains = {
       "githubcopilot.com" = "*";
       "github.com" = "*";
-      "githubusercontent.com" = [ "GET" "HEAD" ];
+      "githubusercontent.com" = [
+        "GET"
+        "HEAD"
+      ];
     };
 
   };
 
-in pkgs.mkShell { packages = [ copilot-sandboxed ]; }
+in
+pkgs.mkShell { packages = [ copilot-sandboxed ]; }
