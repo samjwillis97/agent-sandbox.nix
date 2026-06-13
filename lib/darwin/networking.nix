@@ -1,7 +1,6 @@
 {
   pkgs,
   shared,
-  restrictNetwork,
   allowedDomains,
   _proxyRedirects ? { },
 }:
@@ -9,7 +8,7 @@ let
   mkAllowlistFile = shared.mkAllowlistFile;
   mkProxyStartupBashStr = shared.mkProxyStartupBashStr;
 in
-if restrictNetwork then
+if allowedDomains != null then
   let
     allowlistFileStr = mkAllowlistFile allowedDomains;
   in
@@ -61,9 +60,45 @@ else
     networkSeatbeltRulesStr =
       # scheme
       ''
-        ;; Network
+        ;; Network. (allow network*) is permissive across bind/inbound/
+        ;; outbound and across IP families and protocols (including AF_UNIX
+        ;; outbound). The two scoped denies below narrow it to match the
+        ;; README's "no local services" promise:
+        ;;
+        ;;   - The IP-loopback deny blocks connect() to 127.0.0.0/8 and
+        ;;     ::1 (one rule covers both — verified). Host loopback
+        ;;     services (Postgres, dev servers, the SSH agent over TCP,
+        ;;     local API mocks, etc.) are unreachable in open mode.
+        ;;
+        ;;   - The unix-socket deny blocks AF_UNIX connect() to host UNIX
+        ;;     sockets (Alacritty IPC, per-user launchd listeners under
+        ;;     /private/tmp, ssh-agent). Nothing the sandbox ships needs
+        ;;     UNIX-socket egress.
+        ;;
+        ;; seatbelt is last-match-wins, so the denies override the earlier
+        ;; (allow network*). The filtered branch reaches the same
+        ;; loopback/UNIX-deny end state by a different mechanism: it never
+        ;; grants (allow network*) in the first place, only a proxy-port-
+        ;; pinned (allow network-outbound (remote ip "localhost:<port>")).
+        ;;
+        ;; (allow system-socket) — kept; it gates socket(PF_SYSTEM, ...)
+        ;; (kernel-control sockets, utun, etc.), not AF_UNIX, and matches
+        ;; what the filtered branch grants.
+        ;;
+        ;; mDNSResponder exception: macOS getaddrinfo() resolves names via
+        ;; /private/var/run/mDNSResponder (AF_UNIX). The blanket unix-socket
+        ;; deny above would kill all in-sandbox DNS — curl, git over HTTPS,
+        ;; etc. — so we re-allow that one path. The deny still wins for
+        ;; every other AF_UNIX target (ssh-agent, terminal IPC, app
+        ;; sockets under /private/tmp, …). Filtered mode doesn't need this
+        ;; exception because the proxy resolves names; the sandbox there
+        ;; only dials TCP to localhost:<proxy-port>.
         (allow network*)
         (allow system-socket)
+        (deny network-outbound (remote ip "localhost:*"))
+        (deny network-outbound (remote unix-socket))
+        (allow network-outbound
+          (remote unix-socket (path-literal "/private/var/run/mDNSResponder")))
       '';
     proxyStartupBashStr = "";
     networkRuntimePatchBashStr = "";

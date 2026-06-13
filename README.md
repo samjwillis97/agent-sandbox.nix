@@ -40,6 +40,8 @@ A few arguments were renamed, and `restrictNetwork` was removed. If you use an o
 
 Network access is now controlled by `allowedDomains` on its own: leave it unset for open internet, list the domains you want to allow, or use `[ ]` to block everything.
 
+**If you relied on host loopback reachability:** previously, leaving `restrictNetwork` unset let the agent reach host-local services (Ollama, a local database, a local MCP server, etc.). That no longer works — host loopback is now blocked unconditionally on both platforms. The recommended workaround is to run the service inside the sandbox instead. If you have a use case that requires reaching a specific host-local service, please open an issue.
+
 </details>
 
 ### Templates
@@ -124,7 +126,9 @@ mkSandbox {
 
 ### Network restrictions
 
-By default, network access is unrestricted. To restrict it, set `allowedDomains` — the sandbox can then only reach the domains you list. Leave it unset for open internet, or set it to `[ ]` to block all network access.
+Host loopback services — databases, dev servers, SSH agent, Docker socket, etc. — are never reachable from inside the sandbox, regardless of how `allowedDomains` is set. If you need the agent to reach a specific host-local service, please open an issue describing the use case.
+
+By default, internet access is unrestricted. To restrict it, set `allowedDomains` — the sandbox can then only reach the domains you list. Leave it unset for open internet, or set it to `[ ]` to block all internet access.
 
 `allowedDomains` accepts two formats:
 
@@ -363,6 +367,7 @@ If your threat model is *"I assume the agent is actively malicious and need it t
 
 - `sandbox-exec` is deprecated on macOS. It remains the only native unprivileged sandboxing mechanism and currently works on macOS 26 (Tahoe) and older, but may break in a future release.
 - Symlinks inside `rwDirs` and `rwFiles` are only followed to already-permitted paths. A symlink is usable only if its target is the Nix store, the working directory, the Git directory, or another declared `rwDir`/`rwFile`. Anything else is blocked — this prevents an agent from planting a symlink during a session to expand its own sandbox on the next startup (e.g. `~/.claude/evil -> /etc/shadow`). To expose a non-permitted path that's currently reached via a symlink, declare it explicitly as a `rwDir` or `rwFile`. Symlinks into the Nix store are read-only. Platform differences: on Linux, only top-level symlinks inside a `rwDir` are detected (the startup scan is one level deep) and blocked targets produce a `sandbox: WARNING` line on startup; on macOS, symlinks are followed at any depth and denials happen at runtime — check `log show --predicate 'eventMessage CONTAINS "deny"'`.
+- **Linux DNS with systemd-resolved:** if your host's `/etc/resolv.conf` points to `127.0.0.53` (the systemd-resolved stub resolver), DNS will not work inside the sandbox in open-network mode. The sandbox runs in its own network namespace and cannot reach the host's loopback address. On NixOS this is uncommon (DNS servers are typically written directly), but on Ubuntu and similar distributions it is the default. If you hit this, configure your host to write real DNS server addresses to `/etc/resolv.conf` (e.g. via `resolved.conf` `DNS=` + `DNSStubListener=no`), or set `allowedDomains` and let the proxy resolve names instead.
 - Tested on x86_64-linux and aarch64-darwin. Other architectures should work but are untested.
 
 ## Similar projects

@@ -269,8 +269,7 @@ let
   conditionalNetworkingParams = import ./networking.nix {
     pkgs = pkgs;
     shared = shared;
-    restrictNetwork = allowedDomains != null;
-    allowedDomains = if allowedDomains != null then allowedDomains else [ ];
+    allowedDomains = allowedDomains;
     _proxyRedirects = _proxyRedirects;
   };
 

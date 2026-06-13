@@ -10,6 +10,25 @@ let
   mkProxyStartupBashStr = shared.mkProxyStartupBashStr;
   pastaGatewayIp = "10.0.2.2";
   pastaNamespaceIp = "10.0.2.1";
+  # Runs inside pasta's namespace (before bwrap) in open (allowedDomains=null)
+  # mode. Keeps the default route so the sandbox can reach the internet, but
+  # installs a single nftables drop rule for the pasta gateway IP. pasta
+  # forwards 10.0.2.2:<port> → 127.0.0.1:<port> on the host, so dropping
+  # all traffic to that address blocks host loopback services (databases,
+  # dev servers, ssh-agent, etc.) without touching internet traffic (whose
+  # destination IPs are real server addresses, not 10.0.2.2).
+  openModeRouteRestrictScript =
+    pkgs.writeScript "sandbox-open-route-restrict"
+      # bash
+      ''
+        #!${pkgs.bashInteractive}/bin/bash
+        set -euo pipefail
+        NFT="${pkgs.nftables}/bin/nft"
+        $NFT add table ip sandbox_filter
+        $NFT add chain ip sandbox_filter output '{ type filter hook output priority 0 ; policy accept ; }'
+        $NFT add rule ip sandbox_filter output ip daddr ${pastaGatewayIp} drop
+        exec "$@"
+      '';
   # Route-restriction script runs inside pasta's namespace (before bwrap).
   # Removes the default route so the namespace cannot reach the wider
   # internet directly. The proxy is bound on 127.0.0.1 on the host;
@@ -52,6 +71,7 @@ if restrictNetwork then
     sandboxExecBashStr = # bash
       ''SANDBOX_PROXY_PORT="$_PROXY_PORT" ${pkgs.passt}/bin/pasta -4 --config-net -a ${pastaNamespaceIp} -g ${pastaGatewayIp} -n 255.255.255.0 -t none -u none -T none -U none -- ${routeRestrictScript} '';
     etcResolvBind = "--ro-bind /dev/null /etc/resolv.conf"; # Block DNS resolution when restrictNetwork is true.
+    resolvConfSetupBashStr = "";
     sslCertEnvBubblewrapStr = ""; # CA cert env vars are set in caCertBubblewrapStr
   }
 else
@@ -60,9 +80,26 @@ else
     caCertBubblewrapStr = "";
     proxyStartupBashStr = "";
     bashCleanupCommandsStr = "";
-    sandboxExecBashStr = "exec ";
+    sandboxExecBashStr = # bash
+      ''${pkgs.passt}/bin/pasta -4 --config-net -a ${pastaNamespaceIp} -g ${pastaGatewayIp} -n 255.255.255.0 -t none -u none -T none -U none -- ${openModeRouteRestrictScript} '';
 
-    etcResolvBind = "--ro-bind /etc/resolv.conf /etc/resolv.conf"; # Normal DNS resolution when restrictNetwork is false.
+    # On systems using systemd-resolved (e.g. Ubuntu), /etc/resolv.conf points
+    # to 127.0.0.53 — the stub listener on the host's loopback. Inside the
+    # pasta namespace that address is the namespace's own loopback with nothing
+    # listening, so DNS breaks. /run/systemd/resolve/resolv.conf holds the real
+    # upstream IPs that systemd-resolved forwards to; those are routable from
+    # the namespace via the default route. On NixOS /etc/resolv.conf already
+    # has real IPs so the fallback is a no-op.
+    resolvConfSetupBashStr =
+      # bash
+      ''
+        _RESOLV_CONF=/etc/resolv.conf
+        if grep -qEm1 '^nameserver[[:space:]]+(127\.|::1)' /etc/resolv.conf 2>/dev/null \
+           && [ -f /run/systemd/resolve/resolv.conf ]; then
+          _RESOLV_CONF=/run/systemd/resolve/resolv.conf
+        fi
+      '';
+    etcResolvBind = ''--ro-bind "$_RESOLV_CONF" /etc/resolv.conf'';
 
     sslCertEnvBubblewrapStr = ''--setenv SSL_CERT_FILE "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt" --setenv NIX_SSL_CERT_FILE "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"'';
   }
