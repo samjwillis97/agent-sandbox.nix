@@ -21,14 +21,12 @@ let
       "$HOME/.copilot"
     ];
     rwFiles = [ ];
+    # Bind your host gitconfig read-only for git identity (recommended).
+    # Set user.name / user.email on the host first, then uncomment:
+    # roFiles = [ "$HOME/.config/git/config" ];
+    # (Alternative: set GIT_AUTHOR_* / GIT_COMMITTER_* in env. See README.)
     env = {
       GITHUB_TOKEN = "$GITHUB_TOKEN";
-      # Declare your git identity here (or bind your host gitconfig - see the
-      # README):
-      # GIT_AUTHOR_NAME = "Your Name";
-      # GIT_AUTHOR_EMAIL = "you@example.com";
-      # GIT_COMMITTER_NAME = "Your Name";
-      # GIT_COMMITTER_EMAIL = "you@example.com";
     };
     allowedDomains = {
       "githubcopilot.com" = "*";
