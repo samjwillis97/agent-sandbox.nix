@@ -169,6 +169,8 @@
   allowedPackages,
   rwDirs ? [ ],
   rwFiles ? [ ],
+  roDirs ? [ ],
+  roFiles ? [ ],
   env ? { },
   allowedDomains ? null,
   # Internal: maps "host" → "addr:port" so the proxy dials the local address
@@ -207,6 +209,16 @@ let
     path = builtins.elemAt rwFiles i;
   }) (builtins.length rwFiles);
 
+  roDirParams = builtins.genList (i: {
+    name = "RO_DIR_${toString i}";
+    path = builtins.elemAt roDirs i;
+  }) (builtins.length roDirs);
+
+  roFileParams = builtins.genList (i: {
+    name = "RO_FILE_${toString i}";
+    path = builtins.elemAt roFiles i;
+  }) (builtins.length roFiles);
+
   # For the .sb file
   seatbeltAllowReadWriteExec = builtins.concatStringsSep "\n" (
     map (
@@ -221,6 +233,17 @@ let
     map (p: ''(allow file-read* file-write* (literal (param "${p.name}")))'') stateFileParams
   );
 
+  # roDirs / roFiles: read-only, no process-exec. The plan rejects a per-bind
+  # exec axis; callers who need to exec from a path should use allowedPackages
+  # or rwDirs.
+  seatbeltAllowReadOnly = builtins.concatStringsSep "\n" (
+    map (p: ''(allow file-read* (subpath (param "${p.name}")))'') roDirParams
+  );
+
+  seatbeltAllowFilesReadOnly = builtins.concatStringsSep "\n" (
+    map (p: ''(allow file-read* (literal (param "${p.name}")))'') roFileParams
+  );
+
   # For the wrapper's sandbox-exec invocation — use resolved shell vars
   stateDirFlags = builtins.concatStringsSep " \\\n  " (
     map (p: ''-D ${p.name}="$_RESOLVED_${p.name}"'') stateDirParams
@@ -230,13 +253,29 @@ let
     map (p: ''-D ${p.name}="$_RESOLVED_${p.name}"'') stateFileParams
   );
 
-  # Resolve rwDirs/rwFiles while HOME is still real
+  roDirFlags = builtins.concatStringsSep " \\\n  " (
+    map (p: ''-D ${p.name}="$_RESOLVED_${p.name}"'') roDirParams
+  );
+
+  roFileFlags = builtins.concatStringsSep " \\\n  " (
+    map (p: ''-D ${p.name}="$_RESOLVED_${p.name}"'') roFileParams
+  );
+
+  # Resolve rwDirs/rwFiles/roDirs/roFiles while HOME is still real
   resolveStateDirsStr = builtins.concatStringsSep "\n" (
     map (p: ''_RESOLVED_${p.name}="${p.path}"'') stateDirParams
   );
 
   resolveStateFilesStr = builtins.concatStringsSep "\n" (
     map (p: ''_RESOLVED_${p.name}="${p.path}"'') stateFileParams
+  );
+
+  resolveRoDirsStr = builtins.concatStringsSep "\n" (
+    map (p: ''_RESOLVED_${p.name}="${p.path}"'') roDirParams
+  );
+
+  resolveRoFilesStr = builtins.concatStringsSep "\n" (
+    map (p: ''_RESOLVED_${p.name}="${p.path}"'') roFileParams
   );
 
   # Symlink resolved state paths into the sandbox HOME so that
@@ -258,6 +297,8 @@ let
 
   symlinkStateDirsStr = mkSymlinkHomeMappingStr stateDirParams;
   symlinkStateFilesStr = mkSymlinkHomeMappingStr stateFileParams;
+  symlinkRoDirsStr = mkSymlinkHomeMappingStr roDirParams;
+  symlinkRoFilesStr = mkSymlinkHomeMappingStr roFileParams;
 
   extraEnvInlineStr = builtins.concatStringsSep " \\\n        " (
     map (name: "${name}=${builtins.toJSON env.${name}}") (builtins.attrNames env)
@@ -348,6 +389,12 @@ let
       stateFileTraversals = builtins.concatStringsSep "\n" (
         map (p: mkTraversalBashStr "$_RESOLVED_${p.name}" "$REAL_HOME") stateFileParams
       );
+      roDirTraversals = builtins.concatStringsSep "\n" (
+        map (p: mkTraversalBashStr "$_RESOLVED_${p.name}" "$REAL_HOME") roDirParams
+      );
+      roFileTraversals = builtins.concatStringsSep "\n" (
+        map (p: mkTraversalBashStr "$_RESOLVED_${p.name}" "$REAL_HOME") roFileParams
+      );
     in
     # bash
     ''
@@ -359,6 +406,8 @@ let
       ${mkTraversalBashStr "$_WALK_FROM" "$REAL_HOME"}
       ${stateDirTraversals}
       ${stateFileTraversals}
+      ${roDirTraversals}
+      ${roFileTraversals}
     '';
 
   # Copy the static seatbelt profile to a temp file and append
@@ -376,6 +425,8 @@ let
     networkRulesStr = conditionalNetworkingParams.networkSeatbeltRulesStr;
     allowReadWriteExecStr = seatbeltAllowReadWriteExec;
     allowFilesStr = seatbeltAllowFiles;
+    allowReadOnlyStr = seatbeltAllowReadOnly;
+    allowFilesReadOnlyStr = seatbeltAllowFilesReadOnly;
   };
 
   seatbeltProfile =
@@ -418,14 +469,17 @@ builtins.seq
           #!${pkgs.bashInteractive}/bin/bash
           CWD=$(pwd)
 
-          ${shared.assertBindsExistBashStr { inherit rwDirs rwFiles; }}
+          ${shared.assertBindsExistBashStr { inherit rwDirs rwFiles roDirs roFiles; }}
 
           ${gitDetectionBashStr}
           ${ttyDetectionBashStr}
 
-          # Resolve rwDirs/rwFiles paths while $HOME still points at real home
+          # Resolve rwDirs/rwFiles/roDirs/roFiles paths while $HOME still points
+          # at real home.
           ${resolveStateDirsStr}
           ${resolveStateFilesStr}
+          ${resolveRoDirsStr}
+          ${resolveRoFilesStr}
 
           # Create an ephemeral HOME so subprocesses don't touch the real home.
           # Lives under /tmp which is already allowed read-write in the profile.
@@ -434,10 +488,12 @@ builtins.seq
           _SANDBOX_PASSWD=$(mktemp /tmp/sandbox-passwd.XXXXXX)
           printf 'user:x:%s:%s:sandbox user:%s:/bin/sh\n' "$(id -u)" "$(id -g)" "$REAL_HOME" > "$_SANDBOX_PASSWD"
 
-          # Symlink state dirs/files into sandbox HOME so $HOME-relative lookups
-          # reach the real paths through the Seatbelt-allowed targets.
+          # Symlink state / ro dirs/files into sandbox HOME so $HOME-relative
+          # lookups reach the real paths through the Seatbelt-allowed targets.
           ${symlinkStateDirsStr}
           ${symlinkStateFilesStr}
+          ${symlinkRoDirsStr}
+          ${symlinkRoFilesStr}
 
           # Walk ancestor directories between REAL_HOME and REPO_ROOT (or CWD)
           # and patch the seatbelt profile at runtime with file-read-metadata rules.
@@ -478,7 +534,7 @@ builtins.seq
             -D HOME_CACHE="$SANDBOX_HOME/.cache" \
             -D HOME_LOCAL="$SANDBOX_HOME/.local" \
             -D HOME_LOCAL_STATE="$SANDBOX_HOME/.local/state" \
-            -D HOME_LOCAL_SHARE="$SANDBOX_HOME/.local/share" ${stateDirFlags} ${stateFileFlags} \
+            -D HOME_LOCAL_SHARE="$SANDBOX_HOME/.local/share" ${stateDirFlags} ${stateFileFlags} ${roDirFlags} ${roFileFlags} \
             ${preEntryScript} ${pkg}/bin/${binName} "$@"
         '';
     }

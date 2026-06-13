@@ -103,6 +103,8 @@ let
     {
       rwDirs,
       rwFiles,
+      roDirs ? [ ],
+      roFiles ? [ ],
     }:
     let
       mkCheck =
@@ -113,9 +115,12 @@ let
             echo "${errorPrefix} ${p}: declared as ${label} but does not exist" >&2
             _BIND_MISSING=1
           fi'';
-      dirChecks = map (mkCheck "rwDir") rwDirs;
-      fileChecks = map (mkCheck "rwFile") rwFiles;
-      allChecks = builtins.concatStringsSep "\n" (dirChecks ++ fileChecks);
+      allChecks = builtins.concatStringsSep "\n" (
+        map (mkCheck "rwDir") rwDirs
+        ++ map (mkCheck "rwFile") rwFiles
+        ++ map (mkCheck "roDir") roDirs
+        ++ map (mkCheck "roFile") roFiles
+      );
     in
     # bash
     ''

@@ -98,7 +98,7 @@
       }
     '';
 
-  # Per-stateFile: if it is a symlink, walk its chain via _follow_symlink_chain;
+  # Per-rwFile: if it is a symlink, walk its chain via _follow_symlink_chain;
   # otherwise bind directly. Appends to STATE_FILE_BINDS at runtime.
   mkResolveFileBashStr = file:
     # bash
@@ -107,6 +107,19 @@
         _follow_symlink_chain "${file}"
       else
         STATE_FILE_BINDS="$STATE_FILE_BINDS --bind ${file} ${file}"
+      fi
+    '';
+
+  # Per-roFile: same shape as mkResolveFileBashStr but the non-symlink branch
+  # binds read-only. Symlink targets resolved via _follow_symlink_chain are
+  # already bound read-only by _add_symlink_target.
+  mkResolveRoFileBashStr = file:
+    # bash
+    ''
+      if [[ -L "${file}" ]]; then
+        _follow_symlink_chain "${file}"
+      else
+        RO_FILE_BINDS="$RO_FILE_BINDS --ro-bind ${file} ${file}"
       fi
     '';
 

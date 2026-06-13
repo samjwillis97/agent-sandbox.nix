@@ -4,12 +4,16 @@
 #
 # Arguments:
 #   networkRulesStr      — (allow network*) or restricted-proxy rules
-#   allowReadWriteExecStr — per-stateDir allow rules  (subpath, file-read/write/exec)
-#   allowFilesStr        — per-stateFile allow rules  (literal, file-read/write)
+#   allowReadWriteExecStr — per-rwDir allow rules  (subpath, file-read/write/exec)
+#   allowFilesStr        — per-rwFile allow rules  (literal, file-read/write)
+#   allowReadOnlyStr      — per-roDir allow rules  (subpath, file-read*; no exec)
+#   allowFilesReadOnlyStr — per-roFile allow rules (literal, file-read*)
 {
   networkRulesStr,
   allowReadWriteExecStr,
   allowFilesStr,
+  allowReadOnlyStr,
+  allowFilesReadOnlyStr,
 }:
 # scheme
 ''
@@ -195,4 +199,8 @@
   ;; Explicit state directories & files
   ${allowReadWriteExecStr}
   ${allowFilesStr}
+
+  ;; Read-only directories & files
+  ${allowReadOnlyStr}
+  ${allowFilesReadOnlyStr}
 ''

@@ -11,7 +11,7 @@ Tested with Claude's frontier models — see [Security](#security) for the threa
 ## What the sandbox allows
 
 - **Project directory** — read/write access to the directory you launch the agent from.
-- **Declared state** — read/write access to anything you list in `rwDirs` or `rwFiles`.
+- **Declared state** — read/write access to anything you list in `rwDirs` / `rwFiles`, or read-only access via `roDirs` / `roFiles`.
 - **Allowed packages** — the binaries you list in `allowedPackages` are on the agent's PATH (plus `bash` and `cacert`).
 - **Network** — unrestricted by default. Set `allowedDomains` to limit the agent to specific domains (and, optionally, specific HTTP methods).
 - **Environment** — only variables you pass via `env` reach the agent; the host environment is otherwise cleared.
@@ -86,8 +86,12 @@ If you want to keep the original command name as the alias, change the `outName`
 | `allowedPackages` | yes | Packages whose `bin/` dirs form the sandbox PATH. `bash` and `cacert` are provided by default — the sandbox needs a shell to run, and `cacert` is required for HTTPS to work. |
 | `rwDirs` | no | Directories the agent can read/write (e.g. `~/.config/claude`) |
 | `rwFiles` | no | Individual files the agent can read/write |
+| `roDirs` | no | Directories the agent can read but not write (e.g. signed binaries, reference source trees, secret stores) |
+| `roFiles` | no | Individual files the agent can read but not write (e.g. `~/.config/git/config` for git identity — see [Git identity](#git-identity)) |
 | `env` | no | Additional environment variables as an attrset |
 | `allowedDomains` | no | Limits which domains the sandbox can reach. Leave unset for open internet. Accepts a list of domains (all methods allowed), or an attrset mapping each domain to `"*"` or a list of HTTP methods. `[ ]` blocks all internet access. |
+
+Paths declared in `rwDirs` / `rwFiles` / `roDirs` / `roFiles` must exist on the host before launch — the sandbox exits with a clear error if any are missing.
 
 A minimal example — the arguments are the same whether you use a flake or a `shell.nix`:
 
@@ -237,11 +241,19 @@ SSH based remotes (e.g. `git@github.com:...`) won't work by default — SSH keys
 
 ### Git identity
 
-`$HOME` is masked inside the sandbox, so your global gitconfig is not visible and git's `user.name` / `user.email` are unset. The sandbox never fabricates an identity if none are provided. This means `git commit` without a declared identity will fails loudly (`fatal: ... auto-detection is disabled`).
+`$HOME` is masked inside the sandbox, so your global gitconfig is not visible and git's `user.name` / `user.email` are unset. The sandbox never fabricates an identity if none are provided. This means `git commit` without a declared identity fails loudly (`fatal: ... auto-detection is disabled`).
 
 To get correctly-attributed commits, declare a real identity in one of two ways:
 
-- **Via `env`** (fully self-contained):
+- **Bind your host gitconfig read-only via `roFiles`** (recommended). Set your identity on the host (`git config --global user.name "..."; git config --global user.email "..."`), then add:
+
+  ```nix
+      roFiles = [ "$HOME/.config/git/config" ];  # or "$HOME/.gitconfig"
+  ```
+
+  git reads `[user]` through its normal global-config lookup. Because the file is read-only inside the sandbox, the agent can't set `core.hooksPath`, `core.fsmonitor`, or `alias.*` entries that would otherwise fire host code on the next host `git` invocation.
+
+- **Via `env`** (fully self-contained, useful when you can't bind a host file):
 
   ```nix
       env = {
@@ -252,9 +264,7 @@ To get correctly-attributed commits, declare a real identity in one of two ways:
       };
   ```
 
-- **By binding your host gitconfig.** Set your identity on the host (`git config --global user.name "..."; git config --global user.email "..."`), then bind `$HOME/.config/git` (or your `~/.gitconfig`) into the sandbox via `rwDirs`. git reads it at its normal lookup path.
-
-> **Note:** do not run `git config --global ...` inside the sandbox to set your identity this — `$HOME` is an ephemeral tmpfs there, so it won't persist. Set it on the host and bind your config file, or use `env`.
+> **Note:** do not run `git config --global ...` inside the sandbox — `$HOME` is an ephemeral tmpfs there, so it won't persist. Set your identity on the host and bind it, or use `env`.
 
 ## Common Patterns / Recipes
 
@@ -273,7 +283,7 @@ rwDirs = [ "$HOME/.npm" ]; # Allow npm cache
 
 ## Debugging
 
-If the agent fails to perform a tool call, or file read/write, the sandbox is likely blocking a path that needs to be added to `rwDirs` or `rwFiles`.
+If the agent fails to perform a tool call, or file read/write, the sandbox is likely blocking a path that needs to be added to `rwDirs` / `rwFiles` (or `roDirs` / `roFiles` for read-only access).
 
 The easiest way to explore the sandbox environment is to wrap `bash` itself with the same config as your agent and poke around interactively.
 
@@ -366,7 +376,7 @@ If your threat model is *"I assume the agent is actively malicious and need it t
 ## Caveats
 
 - `sandbox-exec` is deprecated on macOS. It remains the only native unprivileged sandboxing mechanism and currently works on macOS 26 (Tahoe) and older, but may break in a future release.
-- Symlinks inside `rwDirs` and `rwFiles` are only followed to already-permitted paths. A symlink is usable only if its target is the Nix store, the working directory, the Git directory, or another declared `rwDir`/`rwFile`. Anything else is blocked — this prevents an agent from planting a symlink during a session to expand its own sandbox on the next startup (e.g. `~/.claude/evil -> /etc/shadow`). To expose a non-permitted path that's currently reached via a symlink, declare it explicitly as a `rwDir` or `rwFile`. Symlinks into the Nix store are read-only. Platform differences: on Linux, only top-level symlinks inside a `rwDir` are detected (the startup scan is one level deep) and blocked targets produce a `sandbox: WARNING` line on startup; on macOS, symlinks are followed at any depth and denials happen at runtime — check `log show --predicate 'eventMessage CONTAINS "deny"'`.
+- Symlinks inside `rwDirs`, `rwFiles`, `roDirs`, and `roFiles` are only followed to already-permitted paths. A symlink is usable only if its target is the Nix store, the working directory, the Git directory, or another declared bind. Anything else is blocked — this prevents an agent from planting a symlink during a session to expand its own sandbox on the next startup (e.g. `~/.claude/evil -> /etc/shadow`). To expose a non-permitted path that's currently reached via a symlink, declare it explicitly as a `rwDir` / `rwFile` / `roDir` / `roFile`. Symlinks into the Nix store are read-only. Platform differences: on Linux, only top-level symlinks inside a bound dir are detected (the startup scan is one level deep) and blocked targets produce a `sandbox: WARNING` line on startup; on macOS, symlinks are followed at any depth and denials happen at runtime — check `log show --predicate 'eventMessage CONTAINS "deny"'`.
 - **Linux DNS with systemd-resolved:** if your host's `/etc/resolv.conf` points to `127.0.0.53` (the systemd-resolved stub resolver), DNS will not work inside the sandbox in open-network mode. The sandbox runs in its own network namespace and cannot reach the host's loopback address. On NixOS this is uncommon (DNS servers are typically written directly), but on Ubuntu and similar distributions it is the default. If you hit this, configure your host to write real DNS server addresses to `/etc/resolv.conf` (e.g. via `resolved.conf` `DNS=` + `DNSStubListener=no`), or set `allowedDomains` and let the proxy resolve names instead.
 - Tested on x86_64-linux and aarch64-darwin. Other architectures should work but are untested.
 

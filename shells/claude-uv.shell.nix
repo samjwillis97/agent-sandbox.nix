@@ -40,12 +40,6 @@ let
     CLAUDE_CODE_OAUTH_TOKEN = "$CLAUDE_CODE_OAUTH_TOKEN";
     CLAUDE_CONFIG_DIR = "$HOME/.claude";
     GITHUB_TOKEN = "$GITHUB_TOKEN";
-    # Declare your git identity here (or bind your host gitconfig - see the
-    # README):
-    # GIT_AUTHOR_NAME = "Your Name";
-    # GIT_AUTHOR_EMAIL = "you@example.com";
-    # GIT_COMMITTER_NAME = "Your Name";
-    # GIT_COMMITTER_EMAIL = "you@example.com";
   };
 
   # On NixOS, use a nix-managed Python and tell uv not to install its own.
@@ -65,6 +59,10 @@ let
       "$HOME/.local/share/uv"
     ];
     rwFiles = [ ];
+    # Bind your host gitconfig read-only for git identity (recommended).
+    # Set user.name / user.email on the host first, then uncomment:
+    # roFiles = [ "$HOME/.config/git/config" ];
+    # (Alternative: set GIT_AUTHOR_* / GIT_COMMITTER_* in env. See README.)
     allowedPackages = commonPackages;
     env = commonEnv // pkgs.lib.optionalAttrs isLinux linuxEnv;
     # Broader domain scoping than claude.shell.nix: uv needs access to all

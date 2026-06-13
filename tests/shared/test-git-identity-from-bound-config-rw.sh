@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
-# Git identity — read from a bound gitconfig.
+# Git identity — read from a gitconfig bound via rwDirs (legacy mode).
+#
+# Regression test for the rwDirs-bound flow. The recommended secure path is
+# now roFiles (see test-git-identity-from-bound-config-ro.sh); this test
+# remains so we'd notice if the legacy mode broke.
 #
 # A host gitconfig bound into the sandbox via rwDirs is read by git at its
 # normal XDG-default global-config path ($HOME/.config/git/config). The
@@ -7,14 +11,13 @@
 # so the declared identity resolves and a commit is attributed to it.
 #
 # The bind is exercised through the rwDir's OWN grant: we override HOME to a
-# throwaway dir so $HOME/.config/git resolves under the test tree — NOT a path
-# that was only ambiently readable via the now-deleted GIT_CONFIG_DIR rule.
+# throwaway dir so $HOME/.config/git resolves under the test tree.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 source "$SCRIPT_DIR/../lib.sh"
 
-SANDBOXED=$(nix-build --no-out-link "$SCRIPT_DIR/../fixtures/bound-git-config.nix")
+SANDBOXED=$(nix-build --no-out-link "$SCRIPT_DIR/../fixtures/bound-git-config-rw.nix")
 SHELL_BIN="$SANDBOXED/bin/sandboxed-bash"
 
 TESTDIR_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)/.tmp-test"

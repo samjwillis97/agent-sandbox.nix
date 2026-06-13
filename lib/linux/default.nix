@@ -77,6 +77,8 @@
   allowedPackages,
   rwDirs ? [ ],
   rwFiles ? [ ],
+  roDirs ? [ ],
+  roFiles ? [ ],
   env ? { },
   allowedDomains ? null,
   # Internal: maps "host" → "addr:port" so the proxy dials the local address
@@ -109,9 +111,13 @@ let
   '';
   pathStr = pkgs.lib.makeBinPath (allowedPackages ++ implicitPackages);
   bindDirsStr = builtins.concatStringsSep " " (map (dir: ''--bind "${dir}" "${dir}"'') rwDirs);
-  # Adds each rwDir to the BOUND_PREFIXES shell array at runtime
+  bindRoDirsStr = builtins.concatStringsSep " " (map (dir: ''--ro-bind "${dir}" "${dir}"'') roDirs);
+  # Adds each rwDir / roDir to the BOUND_PREFIXES shell array at runtime
   stateDirsBoundPrefixBashStr = builtins.concatStringsSep "\n" (
     map (dir: ''BOUND_PREFIXES+=("${dir}")'') rwDirs
+  );
+  roDirsBoundPrefixBashStr = builtins.concatStringsSep "\n" (
+    map (dir: ''BOUND_PREFIXES+=("${dir}")'') roDirs
   );
 
   symlinkHelpers = import ./symlink-helpers.nix {
@@ -124,6 +130,7 @@ let
     ''
       # Complete the set of already-bound path prefixes
       ${stateDirsBoundPrefixBashStr}
+      ${roDirsBoundPrefixBashStr}
       BOUND_PREFIXES+=("$CWD")
       BOUND_PREFIXES+=("/etc/resolv.conf" "/etc/passwd" "/etc/ssl/certs" "/etc/static" "/etc/pki")
       [[ -n "$REPO_ROOT" ]] && BOUND_PREFIXES+=("$REPO_ROOT")
@@ -133,12 +140,18 @@ let
       ${symlinkHelpers.addSymlinkTargetBashStr}
       ${symlinkHelpers.followSymlinkChainBashStr}
 
-      # Resolve rwFile symlinks — bind resolved targets, not the symlink paths
+      # Resolve rwFile / roFile symlinks — bind resolved targets, not the
+      # symlink paths. Non-symlink files go into STATE_FILE_BINDS (--bind)
+      # or RO_FILE_BINDS (--ro-bind) according to the declared mode.
       STATE_FILE_BINDS=""
+      RO_FILE_BINDS=""
       ${builtins.concatStringsSep "\n" (map symlinkHelpers.mkResolveFileBashStr rwFiles)}
+      ${builtins.concatStringsSep "\n" (map symlinkHelpers.mkResolveRoFileBashStr roFiles)}
 
-      # Scan rwDirs for internal symlinks and bind their resolved targets
-      ${builtins.concatStringsSep "\n" (map symlinkHelpers.mkScanDirBashStr rwDirs)}
+      # Scan rwDirs / roDirs for internal symlinks and bind their resolved
+      # targets. Resolved targets are always bound read-only regardless of
+      # the containing dir's mode (see _add_symlink_target).
+      ${builtins.concatStringsSep "\n" (map symlinkHelpers.mkScanDirBashStr (rwDirs ++ roDirs))}
     '';
 
   extraEnvStr = builtins.concatStringsSep " " (
@@ -241,7 +254,7 @@ builtins.seq
         ''
           #!${pkgs.bashInteractive}/bin/bash
             CWD=$(pwd)
-            ${shared.assertBindsExistBashStr { inherit rwDirs rwFiles; }}
+            ${shared.assertBindsExistBashStr { inherit rwDirs rwFiles roDirs roFiles; }}
             ${gitDetectionBashStr}
 
             # Build per-path ro-bind flags for the nix store closure
@@ -275,7 +288,9 @@ builtins.seq
             $REPO_BIND \
             --bind "$CWD" "$CWD" \
             ${bindDirsStr} \
+            ${bindRoDirsStr} \
             $STATE_FILE_BINDS \
+            $RO_FILE_BINDS \
             $SYMLINK_PARENT_DIRS \
             $readonlyStateFileSymlinks \
             $GIT_BIND \
