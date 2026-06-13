@@ -241,7 +241,7 @@ builtins.seq
       text =
         # bash
         ''
-            #!${pkgs.bashInteractive}/bin/bash
+          #!${pkgs.bashInteractive}/bin/bash
             CWD=$(pwd)
             ${mkDirsStr}
             ${mkFilesStr}
