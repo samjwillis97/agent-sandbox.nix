@@ -141,23 +141,26 @@ let
       legacyArgHints = {
         restrictNetwork =
           if restrictNetwork != null then
-            "The 'restrictNetwork' argument is deprecated. Network access is now controlled by 'allowedDomains' alone:\n  - omit it for open internet\n  - set a list/attrset to filter\n  - set to [] to block all\nSee the migration guide: https://github.com/archie-judd/agent-sandbox.nix/blob/main/README.md#v0x-to-v1x-migration-guide"
+            "- The 'restrictNetwork' argument is deprecated. Network access is now controlled by 'allowedDomains' alone:\n  - omit it for open internet\n  - set a list/attrset to filter\n  - set to [] to block all"
           else
             null;
         extraEnv =
-          if extraEnv != null then "The 'extraEnv' argument is deprecated. Use 'env' instead." else null;
+          if extraEnv != null then "- The 'extraEnv' argument is deprecated. Use 'env' instead." else null;
         stateDirs =
-          if stateDirs != null then "The 'stateDirs' argument is deprecated. Use 'rwDirs' instead." else null;
+          if stateDirs != null then
+            "- The 'stateDirs' argument is deprecated. Use 'rwDirs' instead."
+          else
+            null;
         stateFiles =
           if stateFiles != null then
-            "The 'stateFiles' argument is deprecated. Use 'rwFiles' instead."
+            "- The 'stateFiles' argument is deprecated. Use 'rwFiles' instead."
           else
             null;
       };
-      throwMsgHints = builtins.concatStringsSep "\n\n" (
+      throwMsgHints = builtins.concatStringsSep "\n" (
         builtins.attrValues (pkgs.lib.filterAttrs (_: v: v != null) legacyArgHints)
       );
-      throwMsg = "${errorPrefix} Deprecated arguments:\n\n${throwMsgHints}\n\nPlease update your configuration accordingly.";
+      throwMsg = "${errorPrefix} Deprecated arguments:\n\n${throwMsgHints}\n\nPlease update your configuration accordingly. See the migration guide: https://github.com/archie-judd/agent-sandbox.nix/blob/main/README.md#v0x-to-v1x-migration-guide";
     in
     if restrictNetwork != null || extraEnv != null || stateDirs != null || stateFiles != null then
       builtins.throw throwMsg
