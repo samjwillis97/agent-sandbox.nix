@@ -20,19 +20,25 @@ echo
 
 run() { "$NIX_SUPPORT_SHELL" --norc --noprofile -c "$@" >/dev/null 2>&1; }
 
-expect_ok "nix-build succeeds with allowNix" \
-    'nix-build -E "(import <nixpkgs> {}).hello" --no-out-link'
+expect_ok "nix build succeeds with allowNix" \
+    'nix build nixpkgs#hello --no-link'
 
-expect_ok "nix-shell succeeds with allowNix" \
-    'nix-shell -p hello --run "hello"'
+expect_ok "nix run succeeds with allowNix" \
+    'nix run nixpkgs#hello'
+
+expect_ok "nix develop succeeds with allowNix" \
+    'nix develop nixpkgs#hello -c true'
 
 run() { "$BASIC_SHELL" --norc --noprofile -c "$@" >/dev/null 2>&1; }
 
-expect_fail "nix-build unavailable without allowNix" \
-    'nix-build -E "(import <nixpkgs> {}).hello" --no-out-link'
+expect_fail "nix build unavailable without allowNix" \
+    'nix build nixpkgs#hello --no-link'
 
-expect_fail "nix-shell unavailable without allowNix" \
-    'nix-shell -p hello --run "hello"'
+expect_fail "nix run unavailable without allowNix" \
+    'nix run nixpkgs#hello'
+
+expect_fail "nix develop unavailable without allowNix" \
+    'nix develop nixpkgs#hello -c true'
 
 print_results
 exit_status
