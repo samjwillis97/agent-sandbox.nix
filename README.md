@@ -119,7 +119,7 @@ If you want to keep the original command name as the alias, change the `outName`
 | `pkg` | yes | Package containing the binary to wrap |
 | `binName` | yes | Name of the binary inside `pkg/bin/` |
 | `outName` | yes | Name for the resulting wrapped binary and the command to invoke it with |
-| `allowedPackages` | yes | Packages whose `bin/` dirs form the sandbox PATH. `bash` and `cacert` are provided by default — the sandbox needs a shell to run, and `cacert` is required for HTTPS to work. |
+| `allowedPackages` | yes | Packages whose `bin/` dirs form the sandbox PATH. `bash` and `cacert` are provided by default — the sandbox needs a shell to run, and `cacert` is required for HTTPS to work. The library exports `commonTools` (a list of standard CLI tools) for convenience; see [`default.nix`](default.nix) for the full list. |
 | `rwDirs` | no | Directories the agent can read/write (e.g. `~/.config/claude`) |
 | `rwFiles` | no | Individual files the agent can read/write |
 | `roDirs` | no | Directories the agent can read but not write (e.g. signed binaries, reference source trees, secret stores) |
@@ -138,7 +138,7 @@ mkSandbox {
   pkg = pkgs.claude-code;
   binName = "claude";
   outName = "claude-sandboxed";
-  allowedPackages = [ pkgs.coreutils pkgs.git pkgs.ripgrep ];
+  allowedPackages = commonTools; # or e.g. commonTools ++ [ pkgs.nodejs ]
   rwDirs = [ "$HOME/.claude" ];
   roFiles = [ "$HOME/.config/git/config" ];
   env = {
