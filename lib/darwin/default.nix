@@ -177,6 +177,9 @@
   env ? { },
   allowedDomains ? null,
   allowedLocalPorts ? [ ],
+  # Allows binding listeners on any interface. Required by local web servers
+  # and OAuth callbacks that bind 127.0.0.1 directly. Defaults to false.
+  allowNetworkBind ? false,
   # Internal: maps "host" → "addr:port" so the proxy dials the local address
   # for those hosts instead of resolving the original. Used by the test
   # harness to point fake domains at a local httpbin. Not part of the
@@ -316,6 +319,7 @@ let
     shared = shared;
     allowedDomains = allowedDomains;
     allowedLocalPorts = validatedAllowedLocalPorts;
+    allowNetworkBind = allowNetworkBind;
     _proxyRedirects = _proxyRedirects;
   };
 

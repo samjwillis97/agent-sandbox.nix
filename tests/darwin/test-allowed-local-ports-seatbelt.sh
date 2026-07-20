@@ -12,10 +12,10 @@ sandbox_profile_for_wrapper() {
 }
 
 expect_rule_count() {
-	local desc="$1" ports="$2" rule="$3" count="$4"
+	local desc="$1" ports="$2" rule="$3" count="$4" allow_network_bind="${5:-false}" allowed_domains="${6:-null}"
 	local build_log out profile actual
 	build_log=$(mktemp)
-	if ! out=$(nix-build --no-out-link --arg ports "$ports" "$SCRIPT_DIR/../fixtures/allowed-local-ports.nix" 2>"$build_log"); then
+	if ! out=$(nix-build --no-out-link --arg ports "$ports" --arg allowNetworkBind "$allow_network_bind" --arg allowedDomains "$allowed_domains" "$SCRIPT_DIR/../fixtures/allowed-local-ports.nix" 2>"$build_log"); then
 		echo "FAIL: $desc (build failed)"
 		sed 's/^/    /' "$build_log"
 		rm -f "$build_log"
@@ -60,6 +60,20 @@ expect_rule_count "null emits one all-ports rule" \
 	"null" \
 	'(allow network-outbound (remote ip "localhost:*"))' \
 	1
+
+expect_rule_count "listener binding remains scoped by default" \
+	"[ ]" \
+	'(allow network-bind (local ip "localhost:*"))' \
+	1 \
+	false \
+	"[ ]"
+
+expect_rule_count "listener binding is fully enabled when opted in" \
+	"[ ]" \
+	'(allow network-bind)' \
+	1 \
+	true \
+	"[ ]"
 
 print_results
 exit_status

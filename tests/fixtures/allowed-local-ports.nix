@@ -1,4 +1,4 @@
-{ ports ? [ 18934 ] }:
+{ ports ? [ 18934 ], allowNetworkBind ? false, allowedDomains ? null }:
 let
   pkgs = import <nixpkgs> { };
   sandbox = import ../../default.nix { pkgs = pkgs; };
@@ -8,4 +8,5 @@ in sandbox.mkSandbox {
   outName = "sandboxed-bash-allowed-local-ports";
   allowedPackages = [ pkgs.coreutils pkgs.curl pkgs.python3Minimal ];
   allowedLocalPorts = ports;
+  inherit allowNetworkBind allowedDomains;
 }

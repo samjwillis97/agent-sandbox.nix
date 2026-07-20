@@ -8,11 +8,14 @@ TEST_CWD="$(cd "$SCRIPT_DIR/../.." && pwd)"
 source "$SCRIPT_DIR/../lib.sh"
 
 SANDBOXED=$(nix-build --no-out-link "$SCRIPT_DIR/../fixtures/allowed-local-ports.nix")
-SHELL="$SANDBOXED/bin/sandboxed-bash-allowed-local-ports"
+BIND_DISABLED=$(nix-build --no-out-link --arg allowedDomains '[ ]' "$SCRIPT_DIR/../fixtures/allowed-local-ports.nix")
+BIND_DISABLED_SHELL="$BIND_DISABLED/bin/sandboxed-bash-allowed-local-ports"
+BIND_ENABLED=$(nix-build --no-out-link --arg allowNetworkBind true --arg allowedDomains '[ ]' "$SCRIPT_DIR/../fixtures/allowed-local-ports.nix")
+BIND_ENABLED_SHELL="$BIND_ENABLED/bin/sandboxed-bash-allowed-local-ports"
 
 HOST_PYTHON3=$(nix-build --no-out-link -E '(import <nixpkgs> {}).python3Minimal')/bin/python3
 
-run() { (cd "$TEST_CWD" && "$SHELL" --norc --noprofile -c "$@") >/dev/null 2>&1; }
+run() { (cd "$TEST_CWD" && "$SANDBOXED/bin/sandboxed-bash-allowed-local-ports" --norc --noprofile -c "$@") >/dev/null 2>&1; }
 
 ALLOWED_PORT=18934
 DENIED_PORT=18935
@@ -45,8 +48,15 @@ echo
 expect_ok "curl is available" "command -v curl"
 expect_ok "python3 is available" "command -v python3"
 
-expect_status "can reach service started inside same sandbox on allowed port" 0 \
+run() { (cd "$TEST_CWD" && "$BIND_DISABLED_SHELL" --norc --noprofile -c "$@") >/dev/null 2>&1; }
+expect_status "cannot run a local web server when listener binding is disabled" 20 \
 	"python3 '$SCRIPT_DIR/../helpers/inside-http-loopback.py' '$ALLOWED_PORT'"
+
+run() { (cd "$TEST_CWD" && "$BIND_ENABLED_SHELL" --norc --noprofile -c "$@") >/dev/null 2>&1; }
+expect_status "can run a local web server when listener binding is enabled" 0 \
+	"python3 '$SCRIPT_DIR/../helpers/inside-http-loopback.py' '$ALLOWED_PORT'"
+
+run() { (cd "$TEST_CWD" && "$SANDBOXED/bin/sandboxed-bash-allowed-local-ports" --norc --noprofile -c "$@") >/dev/null 2>&1; }
 
 "$HOST_PYTHON3" "$SCRIPT_DIR/../helpers/host-http-loopback.py" \
 	"$ALLOWED_PORT" "$DENIED_PORT" >"$TESTDIR/server.log" 2>&1 &
