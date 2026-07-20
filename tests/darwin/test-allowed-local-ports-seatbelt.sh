@@ -75,5 +75,18 @@ expect_rule_count "listener binding is fully enabled when opted in" \
 	true \
 	"[ ]"
 
+expect_rule_count "listener acceptance remains denied by default" \
+	"[ ]" \
+	'(allow network-inbound)' \
+	0 \
+	false \
+	"[ ]"
+
+expect_rule_count "listener acceptance is enabled when opted in" \
+	"[ ]" \
+	'(allow network-inbound)' \
+	1 \
+	true \
+	"[ ]"
 print_results
 exit_status

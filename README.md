@@ -128,7 +128,7 @@ If you want to keep the original command name as the alias, change the `outName`
 | `env` | no | Additional environment variables as an attrset |
 | `allowedDomains` | no | Limits which domains the sandbox can reach. Leave unset for open internet. Accepts a list of domains (all methods allowed), or an attrset mapping each domain to `"*"`, `"tunnel"`/`"passthrough"`, or a list of HTTP methods. `[ ]` blocks all internet access. |
 | `allowedLocalPorts` | no | Host-local TCP ports the sandbox may reach. Defaults to `[ ]`. Set to `null` to allow all host-local TCP ports. Otherwise, entries must be integers from `1` to `65535`. |
-| `allowNetworkBind` | no | macOS only. Allows the sandbox to bind TCP listeners on any host interface. Defaults to `false`; enable only for local web servers or OAuth callbacks. |
+| `allowNetworkBind` | no | macOS only. Allows the sandbox to bind and accept TCP listeners on any host interface. Defaults to `false`; enable only for local web servers or OAuth callbacks. |
 
 For `allowedPackages`, `bash` and `cacert` are provided by default — the sandbox needs a shell to run, and `cacert` is required for HTTPS to work. The library also exports `commonTools` (a list of standard CLI tools) for convenience; see [`default.nix`](default.nix) for the full list.
 
@@ -433,7 +433,7 @@ If something is blocked that should have been allowed by your sandbox config, th
 
 If a sandboxed process can't reach another sandboxed process on `localhost:<port>`, add that port to `allowedLocalPorts` (or allow all host-local TCP ports with `allowedLocalPorts = null;`). This is macOS-only: `sandbox-exec` shares localhost with the host, so it can't tell sandbox-internal services apart from host-local ones — see [Linux vs macOS](#linux-vs-macos) for the full explanation. The same access also opens those host-local ports, so keep explicit lists narrow.
 
-If a sandboxed process needs to **listen** for a local web server or OAuth callback on macOS, set `allowNetworkBind = true;`. This permits listener binds on any host interface, including LAN-facing addresses, so enable it only for sandboxes that need it.
+If a sandboxed process needs to **listen** for a local web server or OAuth callback on macOS, set `allowNetworkBind = true;`. This permits TCP listener binds and incoming connections on any host interface, including LAN-facing addresses, so enable it only for sandboxes that need it.
 
 ## Security
 

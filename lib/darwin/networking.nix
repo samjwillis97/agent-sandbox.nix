@@ -44,7 +44,9 @@ if allowedDomains != null then
         ;; needs UNIX-socket egress.
         ${
           if allowNetworkBind then
-            "(allow network-bind)"
+            ''
+              (allow network-bind)
+              (allow network-inbound)''
           else
             "(allow network-bind (local ip \"localhost:*\"))"
         }
