@@ -8,11 +8,11 @@
 let
   mkAllowlistFile = shared.mkAllowlistFile;
   mkProxyStartupBashStr = shared.mkProxyStartupBashStr;
-  darwinAllowedLocalPortsRulesStr =
-      builtins.concatStringsSep "\n" (
-        map (port: "        (allow network-outbound (remote ip \"localhost:${port}\"))")
-          (if allowedLocalPorts == null then ["*"] else map toString allowedLocalPorts)
-      );
+  darwinAllowedLocalPortsRulesStr = builtins.concatStringsSep "\n" (
+    map (port: "        (allow network-outbound (remote ip \"localhost:${port}\"))") (
+      if allowedLocalPorts == null then [ "*" ] else map toString allowedLocalPorts
+    )
+  );
 in
 if allowedDomains != null then
   let
@@ -41,7 +41,7 @@ if allowedDomains != null then
         ;; like Alacritty, per-user launchd listeners under /private/tmp,
         ;; ssh-agent, etc.). The proxy speaks TCP, so nothing legitimate
         ;; needs UNIX-socket egress.
-        (allow network-bind (local ip "127.0.0.1:*"))
+        (allow network-bind (local ip "localhost:*"))
         (allow system-socket)
         ${darwinAllowedLocalPortsRulesStr}
       '';
