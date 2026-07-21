@@ -4,6 +4,7 @@
   allowedDomains,
   allowedLocalPorts,
   allowNetworkBind,
+  allowUnixSocketConnect,
   _proxyRedirects ? { },
 }:
 let
@@ -36,12 +37,8 @@ if allowedDomains != null then
         ;; reaching other loopback services (local databases, dev servers,
         ;; etc.) directly, bypassing the proxy's domain/method filtering.
         ;;
-        ;; UNIX-socket egress is intentionally NOT allowed: an unrestricted
-        ;; (remote unix-socket) allow lets the sandboxed process connect()
-        ;; to any UNIX socket the host UID can reach (terminal-emulator IPC
-        ;; like Alacritty, per-user launchd listeners under /private/tmp,
-        ;; ssh-agent, etc.). The proxy speaks TCP, so nothing legitimate
-        ;; needs UNIX-socket egress.
+        ;; UNIX-socket egress is denied by default. Set
+        ;; allowUnixSocketConnect to grant outbound AF_UNIX connections.
         ${
           if allowNetworkBind then
             ''
@@ -52,6 +49,12 @@ if allowedDomains != null then
         }
         (allow system-socket)
         ${darwinAllowedLocalPortsRulesStr}
+        ${
+          if allowUnixSocketConnect then
+            "(allow network-outbound (remote unix-socket))"
+          else
+            ""
+        }
       '';
     proxyStartupBashStr = mkProxyStartupBashStr allowlistFileStr "127.0.0.1" _proxyRedirects;
     networkRuntimePatchBashStr =
@@ -77,7 +80,7 @@ else
       ''
         ;; Network. (allow network*) is permissive across bind/inbound/
         ;; outbound and across IP families and protocols (including AF_UNIX
-        ;; outbound). The two scoped denies below narrow it to match the
+        ;; outbound). The scoped denies below narrow it to match the
         ;; README's "no local services" promise:
         ;;
         ;;   - The IP-loopback deny blocks connect() to 127.0.0.0/8 and
@@ -85,16 +88,15 @@ else
         ;;     services (Postgres, dev servers, the SSH agent over TCP,
         ;;     local API mocks, etc.) are unreachable in open mode.
         ;;
-        ;;   - The unix-socket deny blocks AF_UNIX connect() to host UNIX
-        ;;     sockets (Alacritty IPC, per-user launchd listeners under
-        ;;     /private/tmp, ssh-agent). Nothing the sandbox ships needs
-        ;;     UNIX-socket egress.
+        ;;   - The unix-socket deny blocks AF_UNIX connect() by default.
+        ;;     Set allowUnixSocketConnect to append a matching allow rule.
         ;;
         ;; seatbelt is last-match-wins, so the denies override the earlier
         ;; (allow network*). The filtered branch reaches the same
         ;; loopback/UNIX-deny end state by a different mechanism: it never
         ;; grants (allow network*) in the first place, only a proxy-port-
-        ;; pinned (allow network-outbound (remote ip "localhost:<port>")).
+        ;; pinned (allow network-outbound (remote ip "localhost:<port>")),
+        ;; plus the explicit Unix-socket opt-in above.
         ;;
         ;; (allow system-socket) — kept; it gates socket(PF_SYSTEM, ...)
         ;; (kernel-control sockets, utun, etc.), not AF_UNIX, and matches
@@ -103,17 +105,22 @@ else
         ;; mDNSResponder exception: macOS getaddrinfo() resolves names via
         ;; /private/var/run/mDNSResponder (AF_UNIX). The blanket unix-socket
         ;; deny above would kill all in-sandbox DNS — curl, git over HTTPS,
-        ;; etc. — so we re-allow that one path. The deny still wins for
-        ;; every other AF_UNIX target (ssh-agent, terminal IPC, app
-        ;; sockets under /private/tmp, …). Filtered mode doesn't need this
-        ;; exception because the proxy resolves names; the sandbox there
-        ;; only dials TCP to localhost:<proxy-port>.
+        ;; etc. — so we re-allow that one path when the explicit Unix-socket
+        ;; opt-in is not enabled. The deny still wins for every other
+        ;; AF_UNIX target (ssh-agent, terminal IPC, app sockets under
+        ;; /private/tmp, …).
         (allow network*)
         (allow system-socket)
         (deny network-outbound (remote ip "localhost:*"))
         (deny network-outbound (remote unix-socket))
-        (allow network-outbound
-          (remote unix-socket (path-literal "/private/var/run/mDNSResponder")))
+        ${
+          if allowUnixSocketConnect then
+            "(allow network-outbound (remote unix-socket))"
+          else
+            ''
+              (allow network-outbound
+                (remote unix-socket (path-literal "/private/var/run/mDNSResponder")))''
+        }
         ${darwinAllowedLocalPortsRulesStr}
       '';
     proxyStartupBashStr = "";

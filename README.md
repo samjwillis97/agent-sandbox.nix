@@ -11,7 +11,7 @@ The sandbox uses [bubblewrap](https://github.com/containers/bubblewrap) on Linux
 - **Project directory** — read/write access to the directory you launch the agent from.
 - **Declared state** — read/write access to anything you list in `rwDirs` / `rwFiles`, or read-only access via `roDirs` / `roFiles`.
 - **Allowed packages** — the binaries you list in `allowedPackages` are on the agent's PATH (plus `bash` and `cacert`).
-- **Network** — unrestricted internet by default, with host-local services blocked. Set `allowedDomains` to limit internet domains, and use `allowedLocalPorts` for explicit host-local TCP port access.
+- **Network** — unrestricted internet by default, with host-local services blocked. Set `allowedDomains` to limit internet domains, and use `allowedLocalPorts` for explicit host-local TCP port access. On macOS, set `allowUnixSocketConnect` to explicitly enable host UNIX-socket connections.
 - **Environment** — only variables you pass via `env` reach the agent; the host environment is otherwise cleared.
 - **Git** — the repo's `.git` directory is exposed, including when it sits outside the project tree (worktrees).
 - **Nix** — disabled by default. Optionally allow the agent to run nix commands.
@@ -128,6 +128,7 @@ If you want to keep the original command name as the alias, change the `outName`
 | `env` | no | Additional environment variables as an attrset |
 | `allowedDomains` | no | Limits which domains the sandbox can reach. Leave unset for open internet. Accepts a list of domains (all methods allowed), or an attrset mapping each domain to `"*"`, `"tunnel"`/`"passthrough"`, or a list of HTTP methods. `[ ]` blocks all internet access. |
 | `allowedLocalPorts` | no | Host-local TCP ports the sandbox may reach. Defaults to `[ ]`. Set to `null` to allow all host-local TCP ports. Otherwise, entries must be integers from `1` to `65535`. |
+| `allowUnixSocketConnect` | no | macOS only. Allows outbound connections to host UNIX-domain sockets. Defaults to `false`; enable only when the agent needs Unix-socket IPC (for example, OMP's hub). It does not change TCP localhost access or listener permissions. |
 | `allowNetworkBind` | no | macOS only. Allows the sandbox to bind and accept TCP listeners on any host interface. Defaults to `false`; enable only for local web servers or OAuth callbacks. |
 
 For `allowedPackages`, `bash` and `cacert` are provided by default — the sandbox needs a shell to run, and `cacert` is required for HTTPS to work. The library also exports `commonTools` (a list of standard CLI tools) for convenience; see [`default.nix`](default.nix) for the full list.
@@ -171,7 +172,7 @@ mkSandbox {
 
 ### Network restrictions
 
-The sandbox controls network access along two independent axes. `allowedDomains` governs outbound internet access; `allowedLocalPorts` governs access to host-local TCP services (databases, dev servers, and similar). They don't interact: allowing a domain never grants loopback access, and vice versa. By default internet access is unrestricted and all host-local services are blocked.
+The sandbox controls three independent network-access axes. `allowedDomains` governs outbound internet access; `allowedLocalPorts` governs access to host-local TCP services (databases, dev servers, and similar); `allowUnixSocketConnect` governs outbound connections to host UNIX-domain sockets on macOS. They don't interact: allowing a domain never grants loopback or UNIX-socket access, and vice versa. By default internet access is unrestricted and all host-local TCP services and UNIX sockets are blocked.
 
 #### Domain and internet access
 
@@ -216,6 +217,17 @@ allowedLocalPorts = [ 3000 5432 ];
 Set `allowedLocalPorts = null;` to allow all host-local TCP ports. Keep explicit port lists as narrow as possible; broad access can expose host-local services.
 
 Blocked requests are logged to `/tmp/sandbox-proxy.log`.
+
+#### Unix-domain sockets (macOS)
+
+Host UNIX-domain socket connections are blocked by default. Set `allowUnixSocketConnect = true;` only when the agent needs IPC with a host service, such as OMP's hub:
+
+```nix
+allowUnixSocketConnect = true;
+```
+
+This grants outbound `AF_UNIX` connections to any host UNIX socket reachable by the sandboxed process. It does not grant TCP localhost access, bind/listen permission, or access to sockets whose filesystem path is otherwise unavailable.
+
 
 ## Authentication
 
@@ -434,6 +446,8 @@ If something is blocked that should have been allowed by your sandbox config, th
 If a sandboxed process can't reach another sandboxed process on `localhost:<port>`, add that port to `allowedLocalPorts` (or allow all host-local TCP ports with `allowedLocalPorts = null;`). This is macOS-only: `sandbox-exec` shares localhost with the host, so it can't tell sandbox-internal services apart from host-local ones — see [Linux vs macOS](#linux-vs-macos) for the full explanation. The same access also opens those host-local ports, so keep explicit lists narrow.
 
 If a sandboxed process needs to **listen** for a local web server or OAuth callback on macOS, set `allowNetworkBind = true;`. This permits TCP listener binds and incoming connections on any host interface, including LAN-facing addresses, so enable it only for sandboxes that need it.
+If a sandboxed process needs to connect to a host UNIX-domain socket on macOS, set `allowUnixSocketConnect = true;`. This is intentionally broad — it permits outbound `AF_UNIX` connections, so enable it only for sandboxes that need host IPC.
+
 
 ## Security
 
@@ -446,7 +460,7 @@ If the agent does something it shouldn't — runs a bad prompt, processes a mali
 - It can't read your SSH keys, browser sessions, password manager, other projects' source code, or anything else in your home directory outside the paths you explicitly expose.
 - It can't delete or modify files outside the project directory and your declared `rwDirs` / `rwFiles`.
 - It can't reach the internet outside the domains you allow (when `allowedDomains` is set).
-- It can't talk to local services on your laptop — databases, dev servers, the SSH agent, other terminal windows, etc. — unless you explicitly allow host-local TCP ports with `allowedLocalPorts`.
+- It can't talk to local services on your laptop — databases, dev servers, the SSH agent, other terminal windows, etc. — unless you explicitly allow host-local TCP ports with `allowedLocalPorts` or host UNIX-domain sockets with `allowUnixSocketConnect` on macOS.
 - It can only run the tools you list in `allowedPackages` (unless you set `allowNix = true` — see [Using Nix inside the sandbox](#using-nix-inside-the-sandbox)).
 - It can't see your other running programs, read environment variables they have set, or interfere with other terminals you have open.
 

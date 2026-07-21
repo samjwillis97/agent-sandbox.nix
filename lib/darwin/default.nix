@@ -40,8 +40,9 @@
 
     Network:
       (allow network*) — open internet in unrestricted mode, narrowed by
-      explicit denies for loopback and AF_UNIX egress. allowedLocalPorts can
-      append allow rules for host-local TCP ports.
+      explicit denies for loopback and AF_UNIX egress by default.
+      allowedLocalPorts can append allow rules for host-local TCP ports;
+      allowUnixSocketConnect can opt into AF_UNIX outbound connections.
 
     Device nodes & TTY:
       /dev/null, /dev/urandom, /dev/random, /dev/zero for reads.
@@ -180,6 +181,9 @@
   # Allows binding listeners on any interface. Required by local web servers
   # and OAuth callbacks that bind 127.0.0.1 directly. Defaults to false.
   allowNetworkBind ? false,
+  # Allows outbound AF_UNIX connect() calls. Bind/listen remains governed by
+  # the separate network-bind rules. Defaults to false.
+  allowUnixSocketConnect ? false,
   # Internal: maps "host" → "addr:port" so the proxy dials the local address
   # for those hosts instead of resolving the original. Used by the test
   # harness to point fake domains at a local httpbin. Not part of the
@@ -320,6 +324,7 @@ let
     allowedDomains = allowedDomains;
     allowedLocalPorts = validatedAllowedLocalPorts;
     allowNetworkBind = allowNetworkBind;
+    allowUnixSocketConnect = allowUnixSocketConnect;
     _proxyRedirects = _proxyRedirects;
   };
 
